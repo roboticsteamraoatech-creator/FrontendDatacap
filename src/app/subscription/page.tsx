@@ -28,8 +28,9 @@ import LocationPaymentService from '@/services/LocationPaymentService';
 import { useAuth } from '@/api/hooks/useAuth'; // Assuming we have an auth hook for user data
 import { useAuthContext, User } from '@/AuthContext';
 import OrganizationProfileService, { OrganizationProfile } from '@/services/OrganizationProfileService';
-import ProfileStep from './components/ProfileStep';
-import LocationStep from './components/LocationStep';
+import ProfileStep from "./components/ProfileStep";
+import LocationStep from "./components/LocationStep";
+
 
 interface APIService {
   _id: string;
@@ -230,26 +231,20 @@ const SubscriptionPage: React.FC = () => {
   
   const loadCountries = async () => {
     try {
-      // Using HttpService to call the backend API directly
-      const HttpService = (await import('@/services/HttpService')).HttpService;
-      const httpService = new HttpService();
+      // Use country-state-city package directly for all countries
+      const { Country } = await import('country-state-city');
+      const allCountries = Country.getAllCountries();
       
-      const result = await httpService.getData<any>('/api/locations/countries');
+      const countryObjects = allCountries.map((country: any) => ({
+        name: country.name,
+        isoCode: country.isoCode
+      }));
       
-      if (result.success) {
-        // Convert country objects to the format expected by the component
-        const countryObjects = result.data.countries.map((country: any) => ({
-          name: typeof country === 'string' ? country : country.name,
-          isoCode: (typeof country === 'string' ? country : country.name).substring(0, 2).toUpperCase()
-        }));
-        setCountries(countryObjects);
-      } else {
-        console.error('Failed to load countries:', result.message);
-        setCountries([]); // Set to empty array if API call succeeds but returns no data
-      }
+      setCountries(countryObjects);
+      console.log(`✅ Loaded ${countryObjects.length} countries`);
     } catch (error) {
       console.error('Error loading countries:', error);
-      setCountries([]); // Set to empty array if API call fails
+      setCountries([]);
     }
   };
   
@@ -297,16 +292,23 @@ const SubscriptionPage: React.FC = () => {
   // Functions to load location data
   const loadStatesForLocation = async (index: number, countryName: string) => {
     try {
-      const HttpService = (await import('@/services/HttpService')).HttpService;
-      const httpService = new HttpService();
+      // Use country-state-city package for all states
+      const { Country, State } = await import('country-state-city');
+      const allCountries = Country.getAllCountries();
+      const country = allCountries.find(c => c.name === countryName);
       
-      const data = await httpService.getData<any>(`/api/locations/states?country=${encodeURIComponent(countryName)}`);
-      // Transform the response to extract just the state names
-      const stateList = data.data?.states?.map((state: any) => typeof state === 'string' ? state : state.name) || [];
-      
-      const newDropdownStates = [...locationDropdownStates];
-      newDropdownStates[index].statesForCountry = stateList;
-      setLocationDropdownStates(newDropdownStates);
+      if (country) {
+        const states = State.getStatesOfCountry(country.isoCode);
+        const stateList = states.map(state => ({
+          name: state.name,
+          isoCode: state.isoCode
+        }));
+        
+        const newDropdownStates = [...locationDropdownStates];
+        newDropdownStates[index].statesForCountry = stateList;
+        setLocationDropdownStates(newDropdownStates);
+        console.log(`✅ Loaded ${stateList.length} states for ${countryName}`);
+      }
     } catch (error) {
       console.error('Error loading states:', error);
     }
@@ -314,33 +316,54 @@ const SubscriptionPage: React.FC = () => {
 
   const loadLgasForLocation = async (index: number, countryName: string, stateName: string) => {
     try {
+      // LGAs are only available for specific countries (like Nigeria) from backend
       const HttpService = (await import('@/services/HttpService')).HttpService;
       const httpService = new HttpService();
       
       const data = await httpService.getData<any>(`/api/locations/lgas?country=${encodeURIComponent(countryName)}&state=${encodeURIComponent(stateName)}`);
-      // Transform the response to extract just the LGA names
       const lgaList = data.data?.lgas?.map((lga: any) => typeof lga === 'string' ? lga : lga.name) || [];
       
       const newDropdownStates = [...locationDropdownStates];
       newDropdownStates[index].lgasForState = lgaList;
       setLocationDropdownStates(newDropdownStates);
+      
+      if (lgaList.length > 0) {
+        console.log(`✅ Loaded ${lgaList.length} LGAs for ${stateName}`);
+      } else {
+        console.log(`⚠️ No LGAs available for ${stateName} (LGA is optional)`);
+      }
     } catch (error) {
       console.error('Error loading LGAs:', error);
+      // LGA is optional, so don't fail if not available
+      const newDropdownStates = [...locationDropdownStates];
+      newDropdownStates[index].lgasForState = [];
+      setLocationDropdownStates(newDropdownStates);
     }
   };
 
   const loadCitiesForLocation = async (index: number, countryName: string, stateName: string, lgaName: string) => {
     try {
-      const HttpService = (await import('@/services/HttpService')).HttpService;
-      const httpService = new HttpService();
+      // Use country-state-city package for all cities
+      const { Country, State, City } = await import('country-state-city');
+      const allCountries = Country.getAllCountries();
+      const country = allCountries.find(c => c.name === countryName);
       
-      const data = await httpService.getData<any>(`/api/locations/cities?country=${encodeURIComponent(countryName)}&state=${encodeURIComponent(stateName)}&lga=${encodeURIComponent(lgaName)}`);
-      // Transform the response to extract just the city names
-      const cityList = data.data?.cities?.map((city: any) => typeof city === 'string' ? city : city.name) || [];
-      
-      const newDropdownStates = [...locationDropdownStates];
-      newDropdownStates[index].citiesForLga = cityList;
-      setLocationDropdownStates(newDropdownStates);
+      if (country) {
+        const states = State.getStatesOfCountry(country.isoCode);
+        const state = states.find(s => s.name === stateName);
+        
+        if (state) {
+          const cities = City.getCitiesOfState(country.isoCode, state.isoCode);
+          const cityList = cities.map(city => ({
+            name: city.name
+          }));
+          
+          const newDropdownStates = [...locationDropdownStates];
+          newDropdownStates[index].citiesForLga = cityList;
+          setLocationDropdownStates(newDropdownStates);
+          console.log(`✅ Loaded ${cityList.length} cities for ${stateName}`);
+        }
+      }
     } catch (error) {
       console.error('Error loading cities:', error);
     }
@@ -449,9 +472,7 @@ const SubscriptionPage: React.FC = () => {
   const [promoCodeInputs, setPromoCodeInputs] = useState<Record<string, string>>({});
   
   const packages: SubscriptionPackage[] = apiPackages?.map(pkg => {
-    // For your example: monthly services cost ₦3,000 with 20% discount = ₦2,400
-    
-    // Calculate original prices from services (these go in the dropdown)
+    // Calculate original prices from services
     const servicesByDuration = {
       monthly: pkg.services?.filter(s => s.duration === 'monthly') || [],
       quarterly: pkg.services?.filter(s => s.duration === 'quarterly') || [],
@@ -462,10 +483,15 @@ const SubscriptionPage: React.FC = () => {
     const originalQuarterlyPrice = servicesByDuration.quarterly.reduce((sum, service) => sum + (service.price || 0), 0);
     const originalYearlyPrice = servicesByDuration.yearly.reduce((sum, service) => sum + (service.price || 0), 0);
     
-    // Check if API has applied discount
-    const hasApiDiscount = pkg.finalPriceAfterDiscount !== undefined && 
-                          pkg.finalPriceAfterDiscount !== pkg.totalServiceCost && 
-                          pkg.finalPriceAfterDiscount !== originalMonthlyPrice;
+    // Apply discount to get final prices
+    const discountPercentage = pkg.discountPercentage || 0;
+    const monthlyDiscount = discountPercentage > 0 ? (originalMonthlyPrice * discountPercentage / 100) : 0;
+    const quarterlyDiscount = discountPercentage > 0 ? (originalQuarterlyPrice * discountPercentage / 100) : 0;
+    const yearlyDiscount = discountPercentage > 0 ? (originalYearlyPrice * discountPercentage / 100) : 0;
+    
+    const finalMonthlyPrice = originalMonthlyPrice - monthlyDiscount;
+    const finalQuarterlyPrice = originalQuarterlyPrice - quarterlyDiscount;
+    const finalYearlyPrice = originalYearlyPrice - yearlyDiscount;
     
     // Check for user-applied promo codes
     const appliedPromo = appliedPromoCodes[pkg._id];
@@ -475,15 +501,15 @@ const SubscriptionPage: React.FC = () => {
       id: pkg._id,
       packageName: pkg.title,
       description: pkg.description,
-      // Dropdown shows ORIGINAL prices (before discount)
-      monthlyPrice: originalMonthlyPrice,
-      quarterlyPrice: originalQuarterlyPrice,
-      yearlyPrice: originalYearlyPrice,
-      // Store original prices for reference
+      // Display discounted prices
+      monthlyPrice: finalMonthlyPrice,
+      quarterlyPrice: finalQuarterlyPrice,
+      yearlyPrice: finalYearlyPrice,
+      // Store original prices for comparison
       originalMonthlyPrice: originalMonthlyPrice,
       originalQuarterlyPrice: originalQuarterlyPrice,
       originalYearlyPrice: originalYearlyPrice,
-      hasApiDiscount: hasApiDiscount,
+      hasApiDiscount: discountPercentage > 0,
       hasUserPromo: hasUserPromo,
       features: pkg.features || [],
       services: pkg.services?.map(service => ({
@@ -491,7 +517,7 @@ const SubscriptionPage: React.FC = () => {
         name: service.serviceName,
         duration: service.duration,
         price: service.price,
-        numberOfUsers: 1 // Default to 1, can be adjusted by user
+        numberOfUsers: 1
       })) || [],
       maxUsers: pkg.maxUsers,
       finalPriceAfterDiscount: pkg.finalPriceAfterDiscount,
@@ -508,12 +534,18 @@ const SubscriptionPage: React.FC = () => {
     Object.entries(selectedPackages).forEach(([packageId, billingCycle]) => {
       const pkg = packages.find((p) => p.id === packageId)
       if (pkg) {
-        // CRITICAL: Calculate based on services for the selected duration
+        // Calculate based on services for the selected duration
         const servicesForDuration = pkg.services.filter(service => service.duration === billingCycle);
-        const durationAmount = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
+        const totalCost = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
+        
+        // Apply discount if available
+        const discountPercentage = pkg.discountPercentage || 0;
+        const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
+        const durationAmount = totalCost - discountAmount;
+        
         packageTotal += durationAmount;
         
-        console.log(`💰 Package ${pkg.packageName} (${billingCycle}): ₦${durationAmount.toLocaleString()}`);
+        console.log(`💰 Package ${pkg.packageName} (${billingCycle}): ₦${durationAmount.toLocaleString()} (${discountPercentage}% discount applied)`);
       }
     });
 
@@ -591,17 +623,33 @@ const SubscriptionPage: React.FC = () => {
       // CRITICAL: Get the correct amount for the selected billing cycle
       // Filter services by the selected duration and sum their prices
       const servicesForDuration = selectedPackage?.services?.filter(service => service.duration === subscriptionDuration) || [];
-      const packageAmount = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
+      const totalCost = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
       
-      console.log(`💰 Package amount for ${subscriptionDuration}:`, packageAmount);
+      // Apply discount if available
+      const discountPercentage = selectedPackage?.discountPercentage || 0;
+      const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
+      const packageAmount = totalCost - discountAmount;
+      
+      console.log(`💰 Package calculation for ${subscriptionDuration}:`);
+      console.log(`   - Total cost (before discount): ₦${totalCost.toLocaleString()}`);
+      console.log(`   - Discount (${discountPercentage}%): ₦${discountAmount.toLocaleString()}`);
+      console.log(`   - Final amount: ₦${packageAmount.toLocaleString()}`);
       console.log(`💰 Services for ${subscriptionDuration}:`, servicesForDuration);
-      console.log(`💰 NOT using finalPriceAfterDiscount (${selectedPackage?.finalPriceAfterDiscount}) - using duration-specific amount`);
 
       const appliedPromo = appliedPromoCodes[firstPackageId];
 
       // Check if we have locations for combined payment
+      // CRITICAL: Only use combined payment if locations have fees
       const hasLocations = organizationProfile.isPublicProfile && locations.length > 0 && 
-                          locations.some(loc => loc.country && loc.state && loc.city);
+                          locations.some(loc => loc.country && loc.state && loc.city && loc.cityRegionFee);
+      
+      console.log('🔍 Combined payment check:', {
+        isPublicProfile: organizationProfile.isPublicProfile,
+        locationsCount: locations.length,
+        locations: locations,
+        hasLocations: hasLocations,
+        locationWithFee: locations.find(loc => loc.cityRegionFee)
+      });
 
       if (hasLocations) {
         // Use Combined Payment Service
@@ -627,14 +675,21 @@ const SubscriptionPage: React.FC = () => {
             buildingType: loc.buildingType,
           }));
 
+        // Calculate location total
+        const locationTotal = locationsForPayment.reduce((sum, loc) => {
+          const location = locations.find(l => l.brandName === loc.brandName);
+          return sum + (location?.cityRegionFee || 0);
+        }, 0);
+        
         const combinedPaymentRequest = {
           // Package details
           packageId: firstPackageId,
           subscriptionDuration,
-          packageAmount,
+          packageAmount, // Duration-specific amount
           maxUsers: numberOfUsers,
           
-          // Location details
+          // Location details - only include if we have locations
+          includeVerifiedBadge: locationsForPayment.length > 0,
           locations: locationsForPayment,
           
           // User details
@@ -656,6 +711,9 @@ const SubscriptionPage: React.FC = () => {
         };
 
         console.log('🚀 Combined payment request:', combinedPaymentRequest);
+        console.log('💰 CRITICAL - Package Amount being sent:', packageAmount);
+        console.log('📍 CRITICAL - Location Total:', locationTotal);
+        console.log('💵 CRITICAL - Expected Total on Flutterwave:', packageAmount + locationTotal);
 
         const response = await combinedPaymentService.initializeCombinedPayment(combinedPaymentRequest);
         
@@ -681,7 +739,7 @@ const SubscriptionPage: React.FC = () => {
           userType: 'organization' as const, 
           packageId: firstPackageId,
           subscriptionDuration,
-          amount: packageAmount, 
+          amount: packageAmount, // Duration-specific amount
           maxUsers: numberOfUsers, 
           email: cleanPaymentData.email,
           name: cleanPaymentData.fullName,
@@ -695,6 +753,8 @@ const SubscriptionPage: React.FC = () => {
         };
         
         console.log('🚀 Package payment request:', paymentRequest);
+        console.log('💰 CRITICAL - Package Amount being sent:', packageAmount);
+        console.log('💵 CRITICAL - Expected Total on Flutterwave:', packageAmount);
         const response = await PaymentService.initializePayment(paymentRequest);
         
         if (response.success) {
@@ -898,175 +958,6 @@ const SubscriptionPage: React.FC = () => {
           </div>
         </div>
 
-        {/* {currentStep === 'packages' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-            {packages.map((pkg) => (
-              <div
-                key={pkg.id}
-                className={`relative rounded-xl border-2 p-6 transition-all duration-200 ${
-                  selectedPackages[pkg.id]
-                    ? "border-purple-500 bg-purple-50 shadow-lg"
-                    : "border-gray-200 bg-white hover:shadow-md"
-                }`}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-xl font-bold text-gray-900">{pkg.packageName}</h3>
-                  <div className="flex flex-col gap-2">
-                    <div className="space-y-3">
-                      <div>
-                       
-                        <select
-                          value={selectedPackages[pkg.id] || ""}
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              handlePackageSelection(pkg.id, e.target.value as "monthly" | "quarterly" | "yearly")
-                            }
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                        >
-                          <option value="">Select Plan</option>
-                          <option value="monthly">Monthly - ₦{Math.round(pkg.monthlyPrice).toLocaleString('en-NG')}</option>
-                          <option value="quarterly">Quarterly - ₦{Math.round(pkg.quarterlyPrice).toLocaleString('en-NG')}</option>
-                          <option value="yearly">Yearly - ₦{Math.round(pkg.yearlyPrice).toLocaleString('en-NG')}</option>
-                        </select>
-                      </div>
-                      
-
-                      {pkg.hasApiDiscount && (
-                        <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                            🎉 {pkg.discountPercentage || 20}% DISCOUNT
-                          </span>
-                          
-                        </div>
-                      )}
-                      
-
-                    </div>
-                    
-                   
-                    {pkg.promoCode && (
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={promoCodeInputs[pkg.id] || ''}
-                          onChange={(e) => setPromoCodeInputs(prev => ({
-                            ...prev,
-                            [pkg.id]: e.target.value
-                          }))}
-                          placeholder="Enter promo code"
-                          className="px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 focus:border-transparent"
-                        />
-                        <button
-                          onClick={() => {
-                            const enteredCode = promoCodeInputs[pkg.id]?.trim();
-                            if (enteredCode && pkg.promoCode && enteredCode.toLowerCase() === pkg.promoCode.toLowerCase()) {
-                              setAppliedPromoCodes(prev => ({
-                                ...prev,
-                                [pkg.id]: {
-                                  code: enteredCode,
-                                  discount: pkg.discountPercentage || 0
-                                }
-                              }));
-                            } else {
-                              
-                              const newApplied = {...appliedPromoCodes};
-                              delete newApplied[pkg.id];
-                              setAppliedPromoCodes(newApplied);
-                            }
-                          }}
-                          className={`px-2 py-1 text-xs rounded ${appliedPromoCodes[pkg.id] ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                        >
-                          {appliedPromoCodes[pkg.id] ? 'Applied ✓' : 'Apply'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <p className="text-gray-700 mb-6 text-sm">{pkg.description}</p>
-                
-            
-
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Number of Users</label>
-                  <input
-                    name={`numberOfUsers-${pkg.id}`}
-                    type="number"
-                    min="1"
-                    max={pkg.maxUsers || 10}
-                    defaultValue={pkg.maxUsers || 1}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm ${
-                      packageUserCounts[pkg.id] && pkg.maxUsers && packageUserCounts[pkg.id] > pkg.maxUsers 
-                        ? 'border-red-500' 
-                        : 'border-gray-300'
-                    }`}
-                    placeholder={`Enter number of users (up to ${pkg.maxUsers || 10})`}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value) || 1;
-                      setPackageUserCounts(prev => ({
-                        ...prev,
-                        [pkg.id]: value
-                      }));
-                      
-                     
-                      if (pkg.maxUsers && value > pkg.maxUsers) {
-                        setUserLimitError(`Number of users (${value}) exceeds the maximum allowed (${pkg.maxUsers}) for this package.`);
-                      } else {
-                       
-                        if (userLimitError && selectedPackages[pkg.id]) {
-                          setUserLimitError(null);
-                        }
-                      }
-                    }}
-                  />
-                  <p className="mt-1 text-xs text-gray-500">Maximum allowed: {pkg.maxUsers || 1} users</p>
-                </div>
-
-                <div className="mb-6">
-                  <h4 className="font-semibold text-gray-900 mb-3">Services:</h4>
-                  <div className="space-y-2">
-                    {pkg.services.map((service, idx) => (
-                      <div key={service.id} className="p-2 bg-gray-50 rounded">
-                        <span className="text-sm">{service.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <hr className="my-4 border-t-2 border-gray-500" />
-
-                <div className="mb-6">
-                  <h4 className="font-semibold text-gray-900 mb-3">Features:</h4>
-                  <ul className="text-sm text-gray-700 space-y-1">
-                    {pkg.features.map((feature, idx) => (
-                      <li key={idx} className="flex items-start">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2 mt-0.5 flex-shrink-0" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-500">
-                    {selectedPackages[pkg.id]
-                      ? `Selected: ${selectedPackages[pkg.id]} - ₦${Math.round(getBillingPrice(pkg, selectedPackages[pkg.id]!)).toLocaleString('en-NG')}`
-                      : "Not selected"}
-                  </span>
-                  {selectedPackages[pkg.id] && (
-                    <button
-                      onClick={() => handlePackageSelection(pkg.id, selectedPackages[pkg.id]!)}
-                      className="text-red-500 hover:text-red-700"
-                    >
-                      <XCircle className="w-5 h-5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )} */}
 
    
 
@@ -1325,9 +1216,12 @@ const SubscriptionPage: React.FC = () => {
             const selectedPackage = packages.find(p => p.id === firstPackageId);
             if (!selectedPackage) return undefined;
             
-            
+            // Calculate with discount
             const servicesForDuration = selectedPackage?.services?.filter(service => service.duration === billingCycle) || [];
-            const packageAmount = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
+            const totalCost = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
+            const discountPercentage = selectedPackage?.discountPercentage || 0;
+            const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
+            const packageAmount = totalCost - discountAmount;
             
             console.log(`📦 Selected package amount for ${billingCycle}:`, packageAmount);
             console.log(`📦 Services for ${billingCycle}:`, servicesForDuration);
@@ -1392,9 +1286,12 @@ const SubscriptionPage: React.FC = () => {
                     
                     const userCount = packageUserCounts[packageId] || pkg.maxUsers || 1;
                     
-                    // CRITICAL: Get the correct amount for the selected billing cycle
+                    // Calculate price with discount
                     const cycleServices = pkg.services.filter(service => service.duration === billingCycle);
-                    const actualPrice = cycleServices.reduce((sum, service) => sum + (service.price || 0), 0);
+                    const totalCost = cycleServices.reduce((sum, service) => sum + (service.price || 0), 0);
+                    const discountPercentage = pkg.discountPercentage || 0;
+                    const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
+                    const actualPrice = totalCost - discountAmount;
                     
                     console.log(`📦 Payment summary - ${pkg.packageName} (${billingCycle}): ₦${actualPrice.toLocaleString()}`);
                     
@@ -1407,8 +1304,13 @@ const SubscriptionPage: React.FC = () => {
                             <p className="text-sm text-gray-600">{userCount} user{userCount > 1 ? 's' : ''}</p>
                           </div>
                           <div className="text-right">
+                            {discountAmount > 0 && (
+                              <p className="text-sm text-gray-500 line-through">₦{Math.round(totalCost).toLocaleString('en-NG')}</p>
+                            )}
                             <p className="text-xl font-bold text-gray-900">₦{Math.round(actualPrice).toLocaleString('en-NG')}</p>
-                            <p className="text-xs text-gray-500">Amount for {billingCycle} plan</p>
+                            {discountAmount > 0 && (
+                              <p className="text-xs text-green-600">Save ₦{Math.round(discountAmount).toLocaleString('en-NG')} ({discountPercentage}% off)</p>
+                            )}
                           </div>
                         </div>
                         
