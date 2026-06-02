@@ -11,6 +11,7 @@ import Link from "next/link";
 import { toast } from "@/app/components/hooks/use-toast";
 import { routes } from "@/services/apiRoutes";
 import axios from 'axios';
+import UserSubscriptionService from '@/services/UserSubscriptionService';
 
 interface FormValues {
   email: string
@@ -71,7 +72,7 @@ export default function LoginPage() {
       return response.data
     },
 
-    onSuccess: (response) => {
+    onSuccess: async (response) => {
       setApiError(null)
       const data = response.data
       if (data && data.requiresEmailVerification) {
@@ -91,29 +92,50 @@ export default function LoginPage() {
       } else if (data && data.jwtToken && data.user) {
         signIn(data.jwtToken, data.user)
         
-        const userRole = data.user.role?.toLowerCase()
+        const userRole = data.user.role?.toLowerCase();
         
-        console.log('🚀 User role detected:', userRole)
-        
-        if (userRole === 'super_admin') {
-          toast({ 
-            title: "LOGIN SUCCESSFUL!",
-            description: "Welcome to the super admin dashboard!"
-          })
-          router.replace("/super-admin")
-        } else if (userRole === 'organisation' || userRole === 'organization' || userRole === 'admin') {
-          toast({ 
-            title: "LOGIN SUCCESSFUL!",
-            description: "Checking subscription status..."
-          })
-          // The SubscriptionGuard will handle redirecting to subscription if needed
-          router.replace("/admin")
+        // Check subscription status ONLY for admin/organization users
+        if (userRole === 'admin' || userRole === 'organisation' || userRole === 'organization') {
+          try {
+            const subscriptionResponse = await UserSubscriptionService.getUserSubscriptionStatus(data.user.id);
+            
+            // subscriptionResponse is the full API response: { success, data, message }
+            // subscriptionResponse.data contains: { hasActiveSubscription, shouldShowSubscription, subscription }
+            const hasActiveSubscription = subscriptionResponse.data.hasActiveSubscription;
+            
+            // Route based on subscription status from API response
+            if (hasActiveSubscription) {
+              // User has active subscription - redirect to admin dashboard
+              toast({ 
+                title: "LOGIN SUCCESSFUL!",
+                description: "Welcome back! Redirecting to dashboard..."
+              });
+              router.replace("/admin");
+            } else {
+              // No active subscription - redirect to subscription page
+              toast({ 
+                title: "SUBSCRIPTION NEEDED",
+                description: "Please select a subscription package to continue"
+              });
+              router.replace("/subscription");
+            }
+          } catch (subscriptionError: any) {
+            // Fallback: redirect to admin dashboard when subscription check fails
+            console.error('Subscription check failed, redirecting to admin:', subscriptionError);
+            router.replace("/admin");
+          }
         } else {
+          // Non-admin users - route based on role without subscription check
           toast({ 
             title: "LOGIN SUCCESSFUL!",
-            description: "Welcome back!"
-          })
-          router.replace("/user")
+            description: "Welcome back! Redirecting to dashboard..."
+          });
+          
+          if (userRole === 'super_admin') {
+            router.replace("/super-admin");
+          } else {
+            router.replace("/user");
+          }
         }
       } else {
         const errorMsg = "Invalid response from server"
@@ -338,9 +360,9 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="mb-8">
           <Image 
-            width={40} 
-            height={35} 
-            src="/Group 1.png" 
+            width={100} 
+            height={80} 
+            src="/assets/vetra.png" 
             alt="Company Logo" 
             className="object-contain" 
           />
@@ -491,9 +513,9 @@ export default function LoginPage() {
         }}
       >
         <Image 
-          width={55} 
-          height={48} 
-          src="/Group 1.png" 
+          width={100} 
+          height={80} 
+          src="/assets/vetra.png" 
           alt="Company Logo" 
           className="object-contain" 
         />

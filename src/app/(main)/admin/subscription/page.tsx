@@ -2,41 +2,156 @@
 
 import type React from "react";
 import { useState, useEffect } from "react";
-import { ShieldCheck, Building, Users, MapPin, CreditCard } from "lucide-react";
+import { ShieldCheck, Building, Users, MapPin, CreditCard, AlertCircle, CheckCircle } from "lucide-react";
 import OrganizationProfileService, { OrganizationProfile } from "@/services/OrganizationProfileService";
+import LocationPaymentService, { 
+  PaymentCheckResponse, 
+  InitializePaymentResponse, 
+  VerifyPaymentResponse 
+} from "@/services/LocationPaymentService";
+
+interface LocationWithStatus extends Record<string, any> {
+  locationType: string;
+  brandName: string;
+  country: string;
+  state: string;
+  city: string;
+  cityRegion: string;
+  houseNumber: string;
+  street: string;
+  isPaidFor?: boolean;
+  verificationStatus?: string;
+  status?: string;
+}
 
 const SubscriptionPage: React.FC = () => {
   const [organizationDetails, setOrganizationDetails] = useState<OrganizationProfile | null>(null);
-  const [locations, setLocations] = useState<any[]>([]);
+  const [locations, setLocations] = useState<LocationWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [paymentRequired, setPaymentRequired] = useState(false);
+  const [unpaidLocations, setUnpaidLocations] = useState(0);
+  const [totalLocations, setTotalLocations] = useState(0);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
 
   const organizationProfileService = new OrganizationProfileService();
 
-  useEffect(() => {
-    const loadSubscriptionData = async () => {
-      try {
-        setLoading(true);
-        
-        // Load organization profile
-        const profileResponse = await organizationProfileService.getProfile();
-        if (profileResponse.success && profileResponse.data) {
-          setOrganizationDetails(profileResponse.data.profile);
-        }
-        
-        // Load locations
-        const locationsResponse = await organizationProfileService.getAllLocations();
-        if (locationsResponse.success && locationsResponse.data) {
-          setLocations(locationsResponse.data.locations);
-        }
-      } catch (err) {
-        console.error('Error loading subscription data:', err);
-        setError('Failed to load subscription data');
-      } finally {
-        setLoading(false);
+  // Function to check if payment is required
+  const checkPaymentRequired = async () => {
+    try {
+      const response: PaymentCheckResponse = await LocationPaymentService.checkPaymentRequired();
+      
+      if (response.success) {
+        setPaymentRequired(response.data.paymentRequired);
+        setUnpaidLocations(response.data.unpaidLocations);
+        setTotalLocations(response.data.totalLocations);
       }
-    };
+    } catch (err) {
+      console.error('Error checking payment required:', err);
+    }
+  };
 
+  // Function to initialize payment
+  const initializePayment = async () => {
+    try {
+      // Get user details (you might want to fetch from your auth context)
+      const userData = {
+        email: 'admin@company.com', // Replace with actual user data
+        name: 'John Smith',         // Replace with actual user data
+        phone: '+2348012345678'     // Replace with actual user data
+      };
+
+      const response: InitializePaymentResponse = await LocationPaymentService.initializePayment(userData);
+
+      if (response.success && response.data.paymentLink) {
+        // Redirect to payment gateway
+        window.location.href = response.data.paymentLink;
+      }
+    } catch (err) {
+      console.error('Error initializing payment:', err);
+      setError('Failed to initialize payment');
+    }
+  };
+
+  // Function to verify payment based on URL parameters (if coming back from payment gateway)
+  const verifyPayment = async (transactionId: string) => {
+    setVerifyingPayment(true);
+    try {
+      const response: VerifyPaymentResponse = await LocationPaymentService.verifyPayment({
+        transactionId
+      });
+
+      if (response.success) {
+        // Refresh the data after successful payment verification
+        await loadSubscriptionData();
+      }
+    } catch (err) {
+      console.error('Error verifying payment:', err);
+      setError('Failed to verify payment');
+    } finally {
+      setVerifyingPayment(false);
+    }
+  };
+
+  // Check for transaction ID in URL parameters (for payment return verification)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const transactionId = urlParams.get('transaction_id');
+    
+    if (transactionId) {
+      verifyPayment(transactionId);
+    }
+  }, []);
+
+  const loadSubscriptionData = async () => {
+    try {
+      setLoading(true);
+      
+      // Load organization profile
+      const profileResponse = await organizationProfileService.getProfile();
+      if (profileResponse.success && profileResponse.data) {
+        setOrganizationDetails(profileResponse.data.profile);
+      }
+      
+      // Load locations
+      const locationsResponse = await organizationProfileService.getAllLocations();
+      if (locationsResponse.success && locationsResponse.data) {
+        // Calculate status for each location based on isPaidFor and verificationStatus
+        const locationsWithStatus = locationsResponse.data.locations.map((location: LocationWithStatus) => {
+          let status = "Pending Payment";
+          
+          if (location.isPaidFor === true) {
+            if (location.verificationStatus === 'verified') {
+              status = "Verified";
+            } else if (location.verificationStatus === 'rejected') {
+              status = "Rejected";
+            } else {
+              status = "Pending Verification";
+            }
+          } else if (location.isPaidFor === false || location.isPaidFor === undefined) {
+            status = "Pending Payment";
+          }
+          
+          return {
+            ...location,
+            status
+          };
+        });
+        
+        setLocations(locationsWithStatus);
+      }
+      
+      // Check payment requirements
+      await checkPaymentRequired();
+    } catch (err) {
+      console.error('Error loading subscription data:', err);
+      setError('Failed to load subscription data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadSubscriptionData();
   }, []);
 
@@ -61,6 +176,12 @@ const SubscriptionPage: React.FC = () => {
     );
   }
 
+  // Count locations by status
+  const pendingPaymentCount = locations.filter(loc => loc.status === "Pending Payment").length;
+  const pendingVerificationCount = locations.filter(loc => loc.status === "Pending Verification").length;
+  const verifiedCount = locations.filter(loc => loc.status === "Verified").length;
+  const rejectedCount = locations.filter(loc => loc.status === "Rejected").length;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <style>{`
@@ -71,14 +192,40 @@ const SubscriptionPage: React.FC = () => {
       <div className="ml-0 md:ml-[350px] pt-8 md:pt-8 p-4 md:p-8 min-h-screen">
         <div className="mb-8">
           <div className="flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Subscription Overview</h2>
-              <p className="text-gray-600">View your organization's subscription and profile information</p>
+            <div className="flex items-center space-x-4">
+              <h2 className="text-2xl font-bold text-gray-900">Subscription Overview</h2>
+              <a href="/admin/subscription/profile" className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center">
+                <ShieldCheck className="w-4 h-4 mr-2" />
+                Verify Profile
+              </a>
+              
+              {/* Payment button - only show if payment is required */}
+              {paymentRequired && unpaidLocations > 0 && (
+                <button 
+                  onClick={initializePayment}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+                >
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Pay for {unpaidLocations} Location{unpaidLocations > 1 ? 's' : ''}
+                </button>
+              )}
             </div>
-            <a href="/admin/subscription/profile" className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors">
-              Manage Profile
-            </a>
+            <p className="text-gray-600 hidden md:block">View your organization's subscription and profile information</p>
           </div>
+          
+          {/* Payment notification if payment is required */}
+          {paymentRequired && unpaidLocations > 0 && (
+            <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start">
+              <AlertCircle className="w-5 h-5 text-yellow-600 mr-2 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="font-medium text-yellow-800">Payment Required</h3>
+                <p className="text-yellow-700 text-sm">
+                  You have {unpaidLocations} location{unpaidLocations > 1 ? 's' : ''} that require payment to get verified.
+                  Complete payment to proceed with verification.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Organization Summary Card */}
@@ -88,7 +235,7 @@ const SubscriptionPage: React.FC = () => {
             <h2 className="text-xl font-bold text-gray-900">Organization Summary</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
               <div className="flex items-center">
                 <Building className="w-6 h-6 text-purple-600 mr-2" />
@@ -117,6 +264,58 @@ const SubscriptionPage: React.FC = () => {
               <p className="mt-2 text-lg font-medium">
                 {organizationDetails?.verificationStatus || 'N/A'}
               </p>
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <div className="flex items-center">
+                <CreditCard className="w-6 h-6 text-purple-600 mr-2" />
+                <h3 className="font-semibold text-gray-900">Payment Status</h3>
+              </div>
+              <p className="mt-2 text-lg font-medium">
+                {paymentRequired ? `${unpaidLocations} unpaid` : 'All paid'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Location Status Summary */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm mb-8">
+          <div className="flex items-center mb-6">
+            <MapPin className="w-8 h-8 text-purple-600 mr-3" />
+            <h2 className="text-xl font-bold text-gray-900">Location Status Summary</h2>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <div className="flex items-center">
+                <AlertCircle className="w-5 h-5 text-blue-600 mr-2" />
+                <h3 className="font-semibold text-blue-900">Pending Payment</h3>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-blue-700">{pendingPaymentCount}</p>
+            </div>
+
+            <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+              <div className="flex items-center">
+                <AlertCircle className="w-5 h-5 text-yellow-600 mr-2" />
+                <h3 className="font-semibold text-yellow-900">Pending Verification</h3>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-yellow-700">{pendingVerificationCount}</p>
+            </div>
+
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+              <div className="flex items-center">
+                <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
+                <h3 className="font-semibold text-green-900">Verified</h3>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-green-700">{verifiedCount}</p>
+            </div>
+
+            <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+              <div className="flex items-center">
+                <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+                <h3 className="font-semibold text-red-900">Rejected</h3>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-red-700">{rejectedCount}</p>
             </div>
           </div>
         </div>
@@ -151,7 +350,6 @@ const SubscriptionPage: React.FC = () => {
                 </p>
               </div>
 
-
             </div>
           </div>
         )}
@@ -172,6 +370,7 @@ const SubscriptionPage: React.FC = () => {
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Brand Name</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -188,6 +387,28 @@ const SubscriptionPage: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {location.houseNumber} {location.street}, {location.cityRegion}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {location.status === "Pending Payment" && (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                            Pending Payment
+                          </span>
+                        )}
+                        {location.status === "Pending Verification" && (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                            Pending Verification
+                          </span>
+                        )}
+                        {location.status === "Verified" && (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                            Verified
+                          </span>
+                        )}
+                        {location.status === "Rejected" && (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                            Rejected
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

@@ -1,3 +1,4 @@
+
 import { HttpService } from './HttpService';
 import { routes } from './apiRoutes';
 
@@ -20,8 +21,8 @@ export class UserService {
   }
 
   // Get user profile
-  async getUserProfile() {
-    return this.httpService.getData(routes.getUserProfile());
+  async getUserProfile<T = any>() {
+    return this.httpService.getData<T>(routes.getUserProfile());
   }
 
   // Update user profile

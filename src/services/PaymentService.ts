@@ -11,6 +11,9 @@ interface InitializePaymentRequest {
   email: string;
   name: string;
   phone?: string;
+  callbackUrl?: string;
+  returnUrl?: string;
+  cancelUrl?: string;
 }
 
 interface InitializePaymentResponse {
@@ -56,7 +59,7 @@ class PaymentService {
 
   async initializePayment(request: InitializePaymentRequest): Promise<InitializePaymentResponse> {
     try {
-      const url = '/api/payments/initialize'; // Using direct path since it's not in the routes file
+      const url = '/api/payment/initialize'; // Using direct path since it's not in the routes file
       const response = await this.httpService.postData<InitializePaymentResponse>(request, url);
       return response;
     } catch (error) {
@@ -67,11 +70,15 @@ class PaymentService {
 
   async verifyPayment(request: VerifyPaymentRequest): Promise<VerifyPaymentResponse> {
     try {
-      const url = '/api/payments/verify'; // Using direct path since it's not in the routes file
-      const response = await this.httpService.postData<VerifyPaymentResponse>(request, url);
+      const url = '/api/payment/verify';
+      
+      const response = await this.httpService.postData<VerifyPaymentResponse>(
+        { tx_ref: request.transactionId },
+        url
+      );
+      
       return response;
     } catch (error) {
-      console.error('Error verifying payment:', error);
       throw error;
     }
   }

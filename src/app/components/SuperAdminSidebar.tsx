@@ -1,6 +1,7 @@
 
 
 
+
 "use client";
 
 import React, { Dispatch, SetStateAction, ReactNode, useState, useEffect, useRef } from 'react';
@@ -18,7 +19,10 @@ import {
   DollarSign,
   ChevronDown,
   MapPin,
-  ClipboardList
+  ClipboardList,
+  FileCheck,
+  Truck, // Added for Pickup Center
+  Smartphone // Added for Mobile App Statics
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -124,6 +128,12 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
       icon: <Home className="w-6 h-6 text-[#dcdcdc]" />,
     },
     { 
+      id: 'mobile-app-statics', 
+      name: 'Mobile App Statics', 
+      route: '/super-admin/mobile-app-statics', 
+      icon: <Smartphone className="w-6 h-6 text-[#dcdcdc]" />,
+    },
+    { 
       id: 'role-management', 
       name: 'Role Management', 
       route: '/super-admin/role-management', 
@@ -142,6 +152,12 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
       icon: <Users className="w-6 h-6 text-[#dcdcdc]" />,
     },
     { 
+      id: 'remittance', 
+      name: 'Remittance to Organisation', 
+      route: '/super-admin/remittance', 
+      icon: <DollarSign className="w-6 h-6 text-[#dcdcdc]" />,
+    },
+    { 
       id: 'service', 
       name: 'Service', 
       route: '/super-admin/service', 
@@ -156,21 +172,40 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
         {
           id: 'package-subscription',
           name: 'Package Subscription',
-          route: '/super-admin/subscription' // Updated route for clarity
+          route: '/super-admin/subscription' 
         },
         {
           id: 'verified-badge-subscription',
           name: 'Verified Badge Subscription',
-          route: '/super-admin/subscription/verified-badge' // Route for verified badges
+          route: '/super-admin/subscription/verified-badge' 
+        },
+        {
+          id: 'pending-locations',
+          name: 'Pending Locations',
+          route: '/super-admin/subscription/verified-badge/pending-locations'  
+        },
+        {
+          id: 'rejected-locations',
+          name: 'Rejected Locations',
+          route: '/super-admin/subscription/verified-badge/rejected-locations'  
+        },
+        {
+          id: 'verified-locations',
+          name: 'Verified Locations',
+          route: '/super-admin/subscription/verified-badge/verified-locations' 
         },
         {
           id: 'city-region',
           name: "City's Region",
-          route: '/super-admin/subscription/city-region' // New route for city's region
+          route: '/super-admin/subscription/city-region' 
+        },
+         {
+          id: 'default-price',
+          name: "Default prices",
+          route: '/super-admin/subscription/default-price' 
         }
       ]
     },
-
     { 
       id: 'questionnaire', 
       name: 'Questionnaire', 
@@ -187,8 +222,26 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
     { 
       id: 'payments', 
       name: 'Payments', 
-      route: '/super-admin/payments', // Main payments route
+      route: undefined, // Make it a parent menu
       icon: <CreditCard className="w-6 h-6 text-[#dcdcdc]" />,
+      subItems: [
+        {
+          id: 'package-subscription-payment',
+          name: 'Package Subscription Payment',
+          route: '/super-admin/payments'
+        },
+        {
+          id: 'verified-badge-payment',
+          name: 'Verified Badge Payment',
+          route: '/super-admin/payments/verified-badge'
+        }
+      ]
+    },
+    { 
+      id: 'pickup-center', 
+      name: 'Pickup Center', 
+      route: '/super-admin/pickup-center', 
+      icon: <Truck className="w-6 h-6 text-[#dcdcdc]" />,
     },
     { 
       id: 'industry', 
@@ -208,12 +261,44 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
       route: '/super-admin/platform-commission', 
       icon: <DollarSign className="w-6 h-6 text-[#dcdcdc]" />,
     },
+    { 
+      id: 'data-verification', 
+      name: 'Data Verification', 
+      route: undefined,
+      icon: <FileCheck className="w-6 h-6 text-[#dcdcdc]" />,
+      subItems: [
+        {
+          id: 'all-verifications',
+          name: 'All Verifications',
+          route: '/super-admin/data-verification'
+        },
+        {
+          id: 'verification-assignment',
+          name: 'Verification Assignment',
+          route: '/super-admin/data-verification/assignment'
+        },
+        {
+          id: 'field-agents',
+          name: 'Field Agents',
+          route: '/super-admin/data-verification/field-agents'
+        }
+      ]
+    },
+    { 
+      id: 'organization-categories', 
+      name: 'Org Categories', 
+      route: '/super-admin/organization-categories', 
+      icon: <Package className="w-6 h-6 text-[#dcdcdc]" />,
+    },
+    
   ];
 
-  // Auto-expand subscription menu if on subscription-related pages
+  // Auto-expand subscription and payments menus if on related pages
   useEffect(() => {
     if (pathname.includes('/super-admin/subscription')) {
       setExpandedMenu('subscription');
+    } else if (pathname.includes('/super-admin/payments')) {
+      setExpandedMenu('payments');
     }
   }, [pathname]);
 

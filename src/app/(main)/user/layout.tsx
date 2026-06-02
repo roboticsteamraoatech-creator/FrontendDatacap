@@ -2,16 +2,16 @@
 "use client";
 
 
-import { UserSidebar } from "@/app/components/sidebar";
-import { useState } from "react";
-import SubscriptionGuard from "@/components/SubscriptionGuard";
+import { UserSidebar } from '@/app/components/sidebar';
+import { useState } from 'react';
+import SubscriptionGuard from '@/components/SubscriptionGuard';
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [showSidebar, setShowSidebar] = useState(false); // Start with sidebar closed on mobile
+  const [showSidebar, setShowSidebar] = useState(true) // Open by default on desktop
 
   return (
     <SubscriptionGuard>

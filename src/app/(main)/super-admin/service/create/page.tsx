@@ -1,9 +1,12 @@
+
+
+
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Save, Package } from 'lucide-react';
-import ServiceService from '@/services/ServiceService';
+import { ArrowLeft, Save, Package, CheckSquare, Square, Settings, Users } from 'lucide-react';
+import ServiceService, { type ModuleConfig, type ServiceLimits } from '@/services/ServiceService';
 import { useAuthContext } from '@/AuthContext';
 
 const CreateServicePage = () => {
@@ -16,17 +19,103 @@ const CreateServicePage = () => {
     monthlyPrice: '',
     quarterlyPrice: '',
     yearlyPrice: '',
+    modules: [] as ModuleConfig[],
+    limits: {
+      maxBodyMeasurements: 0,
+      maxOrgUsers: 0,
+    } as ServiceLimits,
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [serviceNameError, setServiceNameError] = useState<string | null>(null);
+  const [isCheckingName, setIsCheckingName] = useState(false);
+
+  // Available modules configuration
+  const availableModules: ModuleConfig[] = [
+    { moduleKey: 'body_measurements', moduleName: 'Body Measurements Management', isEnabled: false },
+    { moduleKey: 'user_management', moduleName: 'User Management', isEnabled: false },
+    { moduleKey: 'role_management', moduleName: 'Role Management', isEnabled: false },
+    { moduleKey: 'group_management', moduleName: 'Group Management', isEnabled: false },
+    { moduleKey: 'one_time_codes', moduleName: 'One-Time Code Management', isEnabled: false },
+  ];
+
+  // Debounced service name validation
+  useEffect(() => {
+    const validateServiceName = async () => {
+      if (!formData.serviceName.trim()) {
+        setServiceNameError('Service name is required');
+        return;
+      }
+
+      setIsCheckingName(true);
+      try {
+        const serviceService = new ServiceService(token);
+        const isUnique = await serviceService.validateServiceName(formData.serviceName.trim());
+        
+        if (!isUnique) {
+          setServiceNameError('A service with this name already exists');
+        } else {
+          setServiceNameError(null);
+        }
+      } catch (error) {
+        console.error('Error validating service name:', error);
+        // Don't set error here, allow submission (server will validate)
+      } finally {
+        setIsCheckingName(false);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      if (formData.serviceName.trim()) {
+        validateServiceName();
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [formData.serviceName, token]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
       [name]: value
+    }));
+    
+    // Clear general error when user starts typing
+    if (error) {
+      setError(null);
+    }
+  };
+
+  const toggleModule = (moduleKey: string) => {
+    setFormData(prev => ({
+      ...prev,
+      modules: prev.modules.some(m => m.moduleKey === moduleKey)
+        ? prev.modules.map(m => 
+            m.moduleKey === moduleKey 
+              ? { ...m, isEnabled: !m.isEnabled }
+              : m
+          )
+        : [
+            ...availableModules.map(m => 
+              m.moduleKey === moduleKey 
+                ? { ...m, isEnabled: true }
+                : m
+            )
+          ].filter(m => m.isEnabled || m.moduleKey === moduleKey)
+    }));
+  };
+
+  const updateLimit = (limitKey: keyof ServiceLimits, value: string) => {
+    const numValue = parseInt(value) || 0;
+    setFormData(prev => ({
+      ...prev,
+      limits: {
+        ...prev.limits,
+        [limitKey]: numValue
+      }
     }));
   };
 
@@ -40,6 +129,17 @@ const CreateServicePage = () => {
       // Validate required fields
       if (!formData.serviceName.trim()) {
         setError('Service name is required');
+        setLoading(false);
+        return;
+      }
+
+      // Check for duplicate before submission
+      const serviceService = new ServiceService(token);
+      const isUnique = await serviceService.validateServiceName(formData.serviceName.trim());
+      
+      if (!isUnique) {
+        setError('A service with this name already exists');
+        setServiceNameError('A service with this name already exists');
         setLoading(false);
         return;
       }
@@ -62,17 +162,29 @@ const CreateServicePage = () => {
         monthlyPrice: monthly,
         quarterlyPrice: quarterly,
         yearlyPrice: yearly,
+        modules: formData.modules.filter(m => m.isEnabled),
+        limits: formData.limits,
       };
       
       // Create service using ServiceService
-      const serviceService = new ServiceService(token);
       await serviceService.createService(submitData);
+      
+      // Update timestamp to invalidate cache in list component
+      localStorage.setItem('services_lastUpdated', Date.now().toString());
       
       // Show success message
       setSuccessMessage('Service created successfully!');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create service');
+    } catch (err: any) {
       console.error('Error creating service:', err);
+      
+      // Handle duplicate error from API
+      if (err.message?.toLowerCase().includes('already exists') || 
+          err.message?.toLowerCase().includes('duplicate')) {
+        setError('A service with this name already exists');
+        setServiceNameError('A service with this name already exists');
+      } else {
+        setError(err.message || 'Failed to create service');
+      }
     } finally {
       setLoading(false);
     }
@@ -142,27 +254,44 @@ const CreateServicePage = () => {
 
             {/* Form Header */}
             <div className="mb-8 flex items-center">
-              
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Service Details</h2>
                 <p className="text-sm text-gray-600">Fill in the service information and pricing</p>
               </div>
             </div>
 
-            {/* Service Name */}
+            {/* Service Name with Duplicate Validation */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Service Name *
               </label>
-              <input
-                type="text"
-                name="serviceName"
-                value={formData.serviceName}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-colors"
-                placeholder="Enter service name (e.g., Body Measurement, Questionnaire)"
-                required
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  name="serviceName"
+                  value={formData.serviceName}
+                  onChange={handleChange}
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-colors ${
+                    serviceNameError ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Enter service name (e.g., Body Measurement, Questionnaire)"
+                  required
+                />
+                {isCheckingName && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
+                  </div>
+                )}
+              </div>
+              {serviceNameError && (
+                <p className="mt-2 text-sm text-red-600">{serviceNameError}</p>
+              )}
+              {!serviceNameError && formData.serviceName && !isCheckingName && (
+                <p className="mt-2 text-sm text-green-600">Service name is available</p>
+              )}
+              <p className="mt-1 text-xs text-gray-500">
+                Enter a unique name for the service
+              </p>
             </div>
 
             {/* Description */}
@@ -178,6 +307,94 @@ const CreateServicePage = () => {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-colors resize-none"
                 placeholder="Describe what this service offers..."
               />
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-gray-200 my-8"></div>
+
+            {/* Modules Section */}
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Modules</h3>
+              <p className="text-sm text-gray-600 mb-4">Select which modules this service will enable</p>
+              
+              <div className="space-y-3">
+                {availableModules.map((module) => {
+                  const isSelected = formData.modules.some(m => m.moduleKey === module.moduleKey && m.isEnabled);
+                  return (
+                    <div 
+                      key={module.moduleKey}
+                      className={`flex items-center justify-between p-4 border rounded-lg cursor-pointer transition-colors ${
+                        isSelected 
+                          ? 'border-purple-600 bg-purple-50' 
+                          : 'border-gray-300 hover:border-purple-300'
+                      }`}
+                      onClick={() => toggleModule(module.moduleKey)}
+                    >
+                      <div className="flex items-center space-x-3">
+                        {isSelected ? (
+                          <CheckSquare className="w-5 h-5 text-purple-600" />
+                        ) : (
+                          <Square className="w-5 h-5 text-gray-400" />
+                        )}
+                        <span className="font-medium text-gray-900">{module.moduleName}</span>
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {isSelected ? 'Enabled' : 'Disabled'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Limits Section */}
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Service Limits</h3>
+              <p className="text-sm text-gray-600 mb-4">Set usage limits for this service (enter 0 for unlimited)</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Max Body Measurements
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={formData.limits.maxBodyMeasurements || ''}
+                      onChange={(e) => updateLimit('maxBodyMeasurements', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-colors"
+                      placeholder="0 (unlimited)"
+                    />
+                    <Settings className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {formData.limits.maxBodyMeasurements === 0 ? 'Unlimited' : `${formData.limits.maxBodyMeasurements} measurements`}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Max Organization Users
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={formData.limits.maxOrgUsers || ''}
+                      onChange={(e) => updateLimit('maxOrgUsers', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-colors"
+                      placeholder="0 (unlimited)"
+                    />
+                    <Users className="absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {formData.limits.maxOrgUsers === 0 ? 'Unlimited' : `${formData.limits.maxOrgUsers} users`}
+                  </p>
+                </div>
+              </div>
             </div>
 
             {/* Divider */}
@@ -286,10 +503,6 @@ const CreateServicePage = () => {
                 </div>
               </div>
             </div>
-
-
-
-           
           </div>
 
           {/* Action Buttons */}
@@ -305,7 +518,7 @@ const CreateServicePage = () => {
             <button
               type="submit"
               className="px-6 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={loading}
+              disabled={loading || !!serviceNameError || isCheckingName}
             >
               <Save className="w-5 h-5 mr-2" />
               {loading ? 'Creating...' : 'Create Service'}

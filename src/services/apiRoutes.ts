@@ -1,3 +1,5 @@
+
+
 export const routes = {
   // User profile routes
   getUserProfile: () => '/api/auth/profile',
@@ -87,6 +89,9 @@ deleteSubscriptionPackage: (id: string) => `/api/subscription-packages/${id}`,
 updateSubscriptionStatus: (id: string) => `/api/subscription-packages/${id}/status`,
 exportSubscriptionPackages: (format: 'csv' | 'excel' | 'pdf') => `/api/subscription-packages/export/${format}`,
 
+// User subscription status routes
+getUserSubscriptionStatus: (userId: string) => `/api/user-subscriptions/user/${userId}/status`,
+
 // Service management routes
 createService: () => '/api/services',
 getServices: () => '/api/services',
@@ -106,6 +111,11 @@ deleteService: (id: string) => `/api/services/${id}`,
     resetCustomerPassword: (id: string) => `/api/super-admin/customers/${id}/reset-password`,
     exportCustomers: (format: 'csv' | 'excel' | 'pdf') => `/api/super-admin/customers/export/${format}`,
   },
+
+
+  
+
+
 
   // Module management routes
   getModules: (search?: string, status?: 'active' | 'inactive') => {
@@ -150,5 +160,61 @@ deleteService: (id: string) => `/api/services/${id}`,
   updateCityRegionStatus: (id: string) => `/api/super-admin/locations/${id}`,
   exportCityRegions: (format: 'csv' | 'excel' | 'pdf') => `/api/super-admin/locations/export/${format}`,
   
-  scanMeasurements: () => '/api/measurements/scan'
+  scanMeasurements: () => '/api/measurements/scan',
+  
+  // Gallery management routes
+  gallery: {
+    base: '/api/admin/gallery',
+    item: (id: string) => `/api/admin/gallery/${id}`,
+    uploadImage: (id: string) => `/api/admin/gallery/${id}/upload-image`,
+    uploadVideo: (id: string) => `/api/admin/gallery/${id}/upload-video`,
+    categories: '/api/admin/gallery/categories',
+    mediaUsage: '/api/admin/gallery/media-usage'
+  },
+  
+  // Admin booking management routes
+  adminBooking: {
+    availableDays: '/api/admin/booking/available-days',
+    availableSlots: '/api/admin/booking/available-slots',
+    organizationUsers: '/api/admin/booking/organization-users',
+    serviceProviders: '/api/admin/booking/service-providers',
+    locationOptions: '/api/admin/booking/location-options',
+    validateLocation: 'https://datacapture-backend.onrender.com/api/admin/booking/validate-location',
+    createBooking: '/api/admin/booking/create',
+  },
+  
+    getDefaultPricing: (page?: number, limit?: number, country?: string, state?: string) => {
+    let url = '/api/super-admin/default-pricing';
+    const params = new URLSearchParams();
+    if (page) params.append('page', page.toString());
+    if (limit) params.append('limit', limit.toString());
+    if (country) params.append('country', country);
+    if (state) params.append('state', state);
+    const paramString = params.toString();
+    return paramString ? `${url}?${paramString}` : url;
+  },
+  getDefaultPricingById: (id: string) => `/api/super-admin/default-pricing/${id}`,
+  createDefaultPricing: () => '/api/super-admin/default-pricing',
+  updateDefaultPricing: (id: string) => `/api/super-admin/default-pricing/${id}`,
+  deleteDefaultPricing: (id: string) => `/api/super-admin/default-pricing/${id}`,
+
+
+
+   getIndustries: (search?: string, status?: 'active' | 'inactive') => {
+    let url = '/api/super-admin/industries';
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    if (status) params.append('status', status);
+    const paramString = params.toString();
+    return paramString ? `${url}?${paramString}` : url;
+  },
+  getIndustryById: (id: string) => `/api/super-admin/industries/${id}`,
+  createIndustry: () => '/api/super-admin/industries',
+  updateIndustry: (id: string) => `/api/super-admin/industries/${id}`,
+  deleteIndustry: (id: string) => `/api/super-admin/industries/${id}`,
+  updateIndustryStatus: (id: string) => `/api/super-admin/industries/${id}/status`,
+  exportIndustries: (format: 'csv' | 'excel' | 'pdf') => `/api/super-admin/industries/export/${format}`,
+
 };
+
+// Log gallery routes for debugging

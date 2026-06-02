@@ -31,27 +31,24 @@ const CityRegionPage = () => {
 
   const fetchRegions = async () => {
     try {
-      // Get all locations using the service
+  
       const response = await CityRegionService.getCityRegions(1, 100);
       
-      // Since the service flattens data, we need to reconstruct unique locations
-      // Group the flattened regions by location ID to get unique locations
+     
       const locationMap = new Map<string, Location>();
       
       for (const item of response.regions) {
-        // Check if this is a location object with cityRegions
+       
         if (!locationMap.has(item._id)) {
-          // Create a location object with all the properties from the first item
-          // but with the cityRegions array intact
+        
           locationMap.set(item._id, {
             ...item,
-            cityRegions: [] // We'll populate this properly below
+            cityRegions: [] 
           });
         }
       }
       
-      // Since the service flattens the data, we need to get unique locations another way
-      // Let's fetch the raw data directly using the HttpService
+    
       const rawData = await CityRegionService['httpService'].getData<any>(routes.getCityRegions(1, 100));
       
       if (rawData.success) {

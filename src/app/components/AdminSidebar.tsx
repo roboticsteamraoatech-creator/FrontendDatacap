@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import React, { Dispatch, SetStateAction, ReactNode, useState, useEffect, useRef } from 'react';
@@ -8,7 +6,14 @@ import {
   User,
   LogOut,
   Shield,
-  ChevronDown
+  ChevronDown,
+  Landmark,
+  ShoppingBag, 
+  FileCheck, 
+  FileText,
+  Bell,
+  Calendar,
+  Smartphone
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -113,6 +118,18 @@ export const AdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) => {
       route: '/admin', 
       icon: <Image src="/Dashboard Circle Streamline Core Remix - Free.png" alt="Dashboard" width={24} height={24} className="object-contain" />,
     },
+    //  { 
+    //   id: 'mobile-app-stats', 
+    //   name: 'Mobile App Statistics', 
+    //   route: '/admin/mobile-app-stats', 
+    //   icon: <Smartphone className="w-6 h-6" />,
+    // },
+    { 
+      id: 'notifications', 
+      name: 'Notifications', 
+      route: '/admin/notifications', 
+      icon: <Bell className="w-6 h-6" />,
+    },
     { 
       id: 'body-measurement', 
       name: 'Body Measurement', 
@@ -131,24 +148,111 @@ export const AdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) => {
       route: '/admin/questionaire', 
       icon: <Image src="/List Dropdown Streamline Carbon.png" alt="Questionnaire" width={24} height={24} className="object-contain" />,
     },
-     { 
+    { 
       id: 'group-management', 
       name: 'Group Management', 
       route: '/admin/group-management', 
       icon: <Image src="/List Dropdown Streamline Carbon.png" alt="Questionnaire" width={24} height={24} className="object-contain" />,
     },
-
     { 
       id: 'verification-badge', 
       name: 'Verification Badge', 
-      route: "/admin/subscription/verification-badge",
       icon: <Image src="/List Dropdown Streamline Carbon.png" alt="Verification Badge" width={24} height={24} className="object-contain" />,
+      subItems: [
+        {
+          id: 'verification-badge-main',
+          name: 'Verification Badge',
+          route: '/admin/subscription/verification-badge'
+        },
+        {
+          id: 'location-payment',
+          name: 'Location Payment',
+          route: '/admin/subscription/location-payment'
+        }
+      ]
     },
     { 
       id: 'subscription', 
       name: 'Subscription', 
       route: "/admin/subscription/packages",
       icon: <Image src="/List Dropdown Streamline Carbon.png" alt="Subscription" width={24} height={24} className="object-contain" />,
+    },
+    { 
+      id: 'settlements', 
+      name: 'Settlements', 
+      icon: <Image src="/Rss Feed Streamline Ultimate Regular - Free (4).png" alt="Settlements" width={24} height={24} className="object-contain" />,
+      subItems: [
+        {
+          id: 'settlement-orders',
+          name: 'Order Settlements',
+          route: '/admin/remittance/order'
+        },
+        {
+          id: 'task-management',
+          name: 'Task Management',
+          route: '/admin/settlement/task-management'
+        },
+        {
+          id: 'provider-settlement',
+          name: 'Provider Settlement',
+          route: '/admin/settlement/provider-settlement'
+        },
+        {
+          id: 'settlement-bank',
+          name: 'Bank Details',
+          route: '/admin/remittance'
+        }
+      ]
+    },
+   
+  
+   
+    { 
+      id: 'gallery', 
+      name: 'Gallery Item Management', 
+      icon: <Image src="/List Dropdown Streamline Carbon.png" alt="Gallery" width={24} height={24} className="object-contain" />,
+      subItems: [
+        {
+          id: 'gallery-items',
+          name: 'Gallery Items',
+          route: '/admin/gallery'
+        },
+        {
+          id: 'services',
+          name: 'Services',
+          route: '/admin/gallery/services'
+        },
+        // {
+        //   id: 'service-provider',
+        //   name: 'Service Provider',
+        //   route: '/admin/gallery/service-provider'
+        // },
+        {
+          id: 'service-provider-assignment',
+          name: 'Service Provider Assignment',
+          route: '/admin/gallery/service-provider-assignment'
+        },
+      ]
+    },
+    { 
+      id: 'booking', 
+      name: 'Booking Management', 
+      route: '/admin/booking', 
+      icon: <Calendar className="w-6 h-6" />,
+    },
+   
+    { 
+      id: 'data-verification', 
+      name: 'Data Verification', 
+       icon: <FileText className="w-6 h-6" />,
+      // icon: <Image src="/File Document Streamline Carbon.png" alt="Data Verification" width={24} height={24} className="object-contain" />,
+      subItems: [
+        {
+          id: 'field-agent',
+          name: 'Field Agent',
+          route: '/admin/data-verification/field-agent'
+        }
+      ]
     },
     {
       id: 'role-management',
@@ -178,7 +282,6 @@ export const AdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) => {
         }
       ]
     },
-  
   ];
 
   // Auto-expand menu based on current route
@@ -441,7 +544,7 @@ export const AdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) => {
                     
                     {/* Submenu items - only show if this menu is expanded */}
                     {expandedMenu === item.id && item.subItems && (
-                      <div className="ml-8 mt-2 flex flex-col gap-2 submenu-up" style={{ width: '230px', marginLeft: '40px' }}>
+                      <div className="ml-8 mt-2 flex flex-col gap-2" style={{ width: '230px', marginLeft: '40px' }}>
                         {item.subItems.map((subItem: SubMenuItem) => (
                           <Link href={subItem.route} key={subItem.id}>
                             <div 
@@ -529,3 +632,4 @@ export const AdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) => {
     </aside>
   );
 };
+
