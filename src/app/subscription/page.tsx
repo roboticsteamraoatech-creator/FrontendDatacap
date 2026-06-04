@@ -394,10 +394,10 @@ const SubscriptionPage: React.FC = () => {
   
 
   
-  // Refs for closing dropdowns on outside click
+
   const dropdownRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // Helper function to validate and get user data
+
   const getValidatedUserData = (context: string = 'payment') => {
     const currentUser = authContext.user;
     
@@ -407,7 +407,7 @@ const SubscriptionPage: React.FC = () => {
     if (!currentUser || !currentUser.email || !currentUser.fullName || 
         currentUser.email.trim() === '' || currentUser.fullName.trim() === '') {
       console.log(`${context} - User data incomplete, checking localStorage...`);
-      // Try to get user data from localStorage as fallback
+
       if (typeof window !== 'undefined') {
         const storedUserStr = localStorage.getItem('user');
         console.log(`${context} - Stored user string:`, storedUserStr);
@@ -470,6 +470,7 @@ const SubscriptionPage: React.FC = () => {
   // State for promo codes
   const [appliedPromoCodes, setAppliedPromoCodes] = useState<Record<string, {code: string, discount: number}>>({});
   const [promoCodeInputs, setPromoCodeInputs] = useState<Record<string, string>>({});
+  const [promoValidationStates, setPromoValidationStates] = useState<Record<string, {isValid: boolean, error?: string}>>({});
   
   const packages: SubscriptionPackage[] = apiPackages?.map(pkg => {
     // Calculate original prices from services
@@ -482,34 +483,35 @@ const SubscriptionPage: React.FC = () => {
     const originalMonthlyPrice = servicesByDuration.monthly.reduce((sum, service) => sum + (service.price || 0), 0);
     const originalQuarterlyPrice = servicesByDuration.quarterly.reduce((sum, service) => sum + (service.price || 0), 0);
     const originalYearlyPrice = servicesByDuration.yearly.reduce((sum, service) => sum + (service.price || 0), 0);
-    
-    // Apply discount to get final prices
-    const discountPercentage = pkg.discountPercentage || 0;
+
+    // Check for user-applied promo codes
+    const appliedPromo = appliedPromoCodes[pkg._id];
+    const promoValidation = promoValidationStates[pkg._id];
+    const hasUserPromo = appliedPromo && promoValidation?.isValid;
+
+    // Only apply discount when user has entered and validated a promo code
+    const discountPercentage = (hasUserPromo ? appliedPromo.discount : 0) || 0;
     const monthlyDiscount = discountPercentage > 0 ? (originalMonthlyPrice * discountPercentage / 100) : 0;
     const quarterlyDiscount = discountPercentage > 0 ? (originalQuarterlyPrice * discountPercentage / 100) : 0;
     const yearlyDiscount = discountPercentage > 0 ? (originalYearlyPrice * discountPercentage / 100) : 0;
-    
+
     const finalMonthlyPrice = originalMonthlyPrice - monthlyDiscount;
     const finalQuarterlyPrice = originalQuarterlyPrice - quarterlyDiscount;
     const finalYearlyPrice = originalYearlyPrice - yearlyDiscount;
-    
-    // Check for user-applied promo codes
-    const appliedPromo = appliedPromoCodes[pkg._id];
-    const hasUserPromo = appliedPromo && pkg.promoCode && pkg.promoCode.toLowerCase() === appliedPromo.code.toLowerCase();
-    
+
     return {
       id: pkg._id,
       packageName: pkg.title,
       description: pkg.description,
-      // Display discounted prices
+      // Show original prices by default; discounted only after valid promo applied
       monthlyPrice: finalMonthlyPrice,
       quarterlyPrice: finalQuarterlyPrice,
       yearlyPrice: finalYearlyPrice,
-      // Store original prices for comparison
+      // Store original prices for strikethrough display
       originalMonthlyPrice: originalMonthlyPrice,
       originalQuarterlyPrice: originalQuarterlyPrice,
       originalYearlyPrice: originalYearlyPrice,
-      hasApiDiscount: discountPercentage > 0,
+      hasApiDiscount: (pkg.discountPercentage || 0) > 0,
       hasUserPromo: hasUserPromo,
       features: pkg.features || [],
       services: pkg.services?.map(service => ({
@@ -538,14 +540,23 @@ const SubscriptionPage: React.FC = () => {
         const servicesForDuration = pkg.services.filter(service => service.duration === billingCycle);
         const totalCost = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
         
-        // Apply discount if available
-        const discountPercentage = pkg.discountPercentage || 0;
-        const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
-        const durationAmount = totalCost - discountAmount;
+        // Apply discount only if valid promo code is applied
+        const appliedPromo = appliedPromoCodes[packageId];
+        const promoValidation = promoValidationStates[packageId];
+        
+        let durationAmount = totalCost;
+        
+        if (appliedPromo && promoValidation?.isValid) {
+          const discountPercentage = appliedPromo.discount || 0;
+          const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
+          durationAmount = totalCost - discountAmount;
+          
+          console.log(`💰 Package ${pkg.packageName} (${billingCycle}): ₦${durationAmount.toLocaleString()} (${discountPercentage}% discount applied)`);
+        } else {
+          console.log(`💰 Package ${pkg.packageName} (${billingCycle}): ₦${durationAmount.toLocaleString()} (no discount)`);
+        }
         
         packageTotal += durationAmount;
-        
-        console.log(`💰 Package ${pkg.packageName} (${billingCycle}): ₦${durationAmount.toLocaleString()} (${discountPercentage}% discount applied)`);
       }
     });
 
@@ -578,6 +589,71 @@ const SubscriptionPage: React.FC = () => {
       return { ...prev, [packageId]: billingCycle }
     })
   }
+
+  // Validate promo code with backend API
+  const validatePromoCode = async (packageId: string, promoCode: string) => {
+    if (!promoCode.trim()) {
+      return;
+    }
+
+    try {
+      const HttpService = (await import('@/services/HttpService')).HttpService;
+      const httpService = new HttpService();
+      
+      const response = await httpService.postData<any>({
+        packageId,
+        promoCode: promoCode.trim()
+      }, `/api/user-subscriptions/validate-promo`);
+      
+      if (response.success && response.data?.isValid) {
+        // Apply the valid promo code
+        setAppliedPromoCodes(prev => ({
+          ...prev,
+          [packageId]: {
+            code: promoCode.trim(),
+            discount: response.data.discountPercentage
+          }
+        }));
+        
+        // Store success message
+        setPromoValidationStates(prev => ({
+          ...prev,
+          [packageId]: { 
+            isValid: true,
+            error: response.message || 'Promo code is valid'
+          }
+        }));
+      } else {
+        // Show validation error
+        setPromoValidationStates(prev => ({
+          ...prev,
+          [packageId]: { 
+            isValid: false, 
+            error: response.message || 'Invalid promo code'
+          }
+        }));
+        
+        // Remove any previously applied promo
+        const newApplied = {...appliedPromoCodes};
+        delete newApplied[packageId];
+        setAppliedPromoCodes(newApplied);
+      }
+    } catch (error: any) {
+      console.error('Error validating promo code:', error);
+      setPromoValidationStates(prev => ({
+        ...prev,
+        [packageId]: { 
+          isValid: false, 
+          error: error.message || 'Failed to validate promo code'
+        }
+      }));
+      
+      // Remove any previously applied promo
+      const newApplied = {...appliedPromoCodes};
+      delete newApplied[packageId];
+      setAppliedPromoCodes(newApplied);
+    }
+  };
 
   const handlePayment = async () => {
     setPaymentInitializationError(null);
@@ -625,21 +701,23 @@ const SubscriptionPage: React.FC = () => {
       const servicesForDuration = selectedPackage?.services?.filter(service => service.duration === subscriptionDuration) || [];
       const totalCost = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
       
-      // Apply discount if available
-      const discountPercentage = selectedPackage?.discountPercentage || 0;
-      const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
-      const packageAmount = totalCost - discountAmount;
+      // Apply discount only if valid promo code is applied
+      const selectedAppliedPromo = appliedPromoCodes[firstPackageId];
+      const selectedPromoValidation = promoValidationStates[firstPackageId];
       
-      console.log(`💰 Package calculation for ${subscriptionDuration}:`);
-      console.log(`   - Total cost (before discount): ₦${totalCost.toLocaleString()}`);
-      console.log(`   - Discount (${discountPercentage}%): ₦${discountAmount.toLocaleString()}`);
-      console.log(`   - Final amount: ₦${packageAmount.toLocaleString()}`);
-      console.log(`💰 Services for ${subscriptionDuration}:`, servicesForDuration);
+      let packageAmount = totalCost;
+      let discountAmount = 0;
+      
+      if (selectedAppliedPromo && selectedPromoValidation?.isValid) {
+        const discountPercentage = selectedAppliedPromo.discount || 0;
+        discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
+        packageAmount = totalCost - discountAmount;
+      }
+      
+     
+      const paymentAppliedPromo = appliedPromoCodes[firstPackageId];
+      const paymentPromoValidation = promoValidationStates[firstPackageId];
 
-      const appliedPromo = appliedPromoCodes[firstPackageId];
-
-      // Check if we have locations for combined payment
-      // CRITICAL: Only use combined payment if locations have fees
       const hasLocations = organizationProfile.isPublicProfile && locations.length > 0 && 
                           locations.some(loc => loc.country && loc.state && loc.city && loc.cityRegionFee);
       
@@ -648,7 +726,8 @@ const SubscriptionPage: React.FC = () => {
         locationsCount: locations.length,
         locations: locations,
         hasLocations: hasLocations,
-        locationWithFee: locations.find(loc => loc.cityRegionFee)
+        locationWithFee: locations.find(loc => loc.cityRegionFee),
+        hasValidPromo: paymentAppliedPromo && paymentPromoValidation?.isValid
       });
 
       if (hasLocations) {
@@ -703,26 +782,19 @@ const SubscriptionPage: React.FC = () => {
           returnUrl: `${window.location.origin}/payment/verify?status=success&type=combined`,
           cancelUrl: `${window.location.origin}/payment/verify?status=cancelled&type=combined`,
           
-          // Optional promo code
-          ...(appliedPromo && {
-            promoCode: appliedPromo.code,
-            discountPercentage: appliedPromo.discount
+          // Optional promo code - only include if validated
+          ...(paymentAppliedPromo && paymentPromoValidation?.isValid && {
+            promoCode: paymentAppliedPromo.code
           })
         };
 
-        console.log('🚀 Combined payment request:', combinedPaymentRequest);
-        console.log('💰 CRITICAL - Package Amount being sent:', packageAmount);
-        console.log('📍 CRITICAL - Location Total:', locationTotal);
-        console.log('💵 CRITICAL - Expected Total on Flutterwave:', packageAmount + locationTotal);
+     
 
         const response = await combinedPaymentService.initializeCombinedPayment(combinedPaymentRequest);
         
         if (response.success && response.data) {
           setPaymentInitializationError(null);
-          console.log('✅ Combined payment initialized successfully');
-          console.log('💰 Total amount:', response.data.totalAmount);
-          console.log('📦 Package amount:', response.data.packageAmount);
-          console.log('📍 Location amount:', response.data.locationAmount);
+        
           
           // Redirect to payment gateway
           window.location.href = response.data.paymentLink;
@@ -746,15 +818,13 @@ const SubscriptionPage: React.FC = () => {
           phone: cleanPaymentData.phoneNumber,
           returnUrl: `${window.location.origin}/payment/verify?status=success&type=package`,
           cancelUrl: `${window.location.origin}/payment/verify?status=cancelled&type=package`,
-          ...(appliedPromo && {
-            promoCode: appliedPromo.code,
-            discountPercentage: appliedPromo.discount
+          // Optional promo code - only include if validated
+          ...(paymentAppliedPromo && paymentPromoValidation?.isValid && {
+            promoCode: paymentAppliedPromo.code
           })
         };
         
-        console.log('🚀 Package payment request:', paymentRequest);
-        console.log('💰 CRITICAL - Package Amount being sent:', packageAmount);
-        console.log('💵 CRITICAL - Expected Total on Flutterwave:', packageAmount);
+      
         const response = await PaymentService.initializePayment(paymentRequest);
         
         if (response.success) {
@@ -783,6 +853,19 @@ const SubscriptionPage: React.FC = () => {
         return pkg.yearlyPrice
       default:
         return pkg.monthlyPrice
+    }
+  }
+
+  const getOriginalPrice = (pkg: SubscriptionPackage, billingCycle: "monthly" | "quarterly" | "yearly") => {
+    switch (billingCycle) {
+      case "monthly":
+        return pkg.originalMonthlyPrice
+      case "quarterly":
+        return pkg.originalQuarterlyPrice
+      case "yearly":
+        return pkg.originalYearlyPrice
+      default:
+        return pkg.originalMonthlyPrice
     }
   }
 
@@ -897,16 +980,13 @@ const SubscriptionPage: React.FC = () => {
         * { font-family: 'Manrope', sans-serif; }
       `}</style>
 
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center">
-            <div className="w-12 h-12 bg-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
-              DC
-            </div>
-          </div>
-          <span className="text-gray-500 text-sm">Subscription Required</span>
-        </div>
-      </header>
+     <header className="bg-white shadow-sm">
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+
+    <img src="/assets/vetra.png" alt="Vetra" className="h-12 w-auto" />
+    
+  </div>
+</header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-10 flex items-center justify-center">
@@ -922,7 +1002,7 @@ const SubscriptionPage: React.FC = () => {
             <div className="w-16 h-0.5 bg-gray-300"></div>
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
-                currentStep === 'profile' ? "bg-purple-600 text-white" : "bg-gray-300 text-gray-600"
+                currentStep === 'profile' ? "bg-[#5d2a8b] text-white" : "bg-gray-300 text-gray-600"
               }`}
             >
               2
@@ -931,7 +1011,7 @@ const SubscriptionPage: React.FC = () => {
             <div className="w-16 h-0.5 bg-gray-300"></div>
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
-                currentStep === 'locations' ? "bg-purple-600 text-white" : "bg-gray-300 text-gray-600"
+                currentStep === 'locations' ? "bg-[#5d2a8b] text-white" : "bg-gray-300 text-gray-600"
               } ${organizationProfile.isPublicProfile ? '' : 'opacity-50'}`}
             >
               3
@@ -940,7 +1020,7 @@ const SubscriptionPage: React.FC = () => {
             <div className={`w-16 h-0.5 bg-gray-300 ${organizationProfile.isPublicProfile ? '' : 'opacity-50'}`}></div>
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
-                currentStep === 'location-payment' ? "bg-purple-600 text-white" : "bg-gray-300 text-gray-600"
+                currentStep === 'location-payment' ? "bg-[#5d2a8b] text-white" : "bg-gray-300 text-gray-600"
               } ${(organizationProfile.isPublicProfile && organizationProfile.verificationStatus === 'verified') ? '' : 'opacity-50'}`}
             >
               4
@@ -949,7 +1029,7 @@ const SubscriptionPage: React.FC = () => {
             <div className={`w-16 h-0.5 bg-gray-300 ${(organizationProfile.isPublicProfile && organizationProfile.verificationStatus === 'verified') ? '' : 'opacity-50'}`}></div>
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
-                currentStep === 'payment' ? "bg-purple-600 text-white" : "bg-gray-300 text-gray-600"
+                currentStep === 'payment' ? "bg-[#5d2a8b] text-white" : "bg-gray-300 text-gray-600"
               }`}
             >
               5
@@ -978,7 +1058,7 @@ const SubscriptionPage: React.FC = () => {
             <h3 className="text-xl font-bold text-gray-900 line-clamp-1">{pkg.packageName}</h3>
             {pkg.hasApiDiscount && (
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 whitespace-nowrap">
-                🎉 {pkg.discountPercentage || 20}% OFF
+                🎉 {pkg.discountPercentage || 0}% OFF
               </span>
             )}
           </div>
@@ -991,64 +1071,83 @@ const SubscriptionPage: React.FC = () => {
 
         
         <div className="mb-4 space-y-2">
-          <select
-            value={selectedPackages[pkg.id] || ""}
-            onChange={(e) => {
-              if (e.target.value) {
-                handlePackageSelection(pkg.id, e.target.value as "monthly" | "quarterly" | "yearly")
-              }
-            }}
-            className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          >
-            <option value="">Select Plan</option>
-            <option value="monthly">Monthly - ₦{Math.round(pkg.monthlyPrice).toLocaleString('en-NG')}</option>
-            <option value="quarterly">Quarterly - ₦{Math.round(pkg.quarterlyPrice).toLocaleString('en-NG')}</option>
-            <option value="yearly">Yearly - ₦{Math.round(pkg.yearlyPrice).toLocaleString('en-NG')}</option>
-          </select>
+          <div className="space-y-2">
+            <select
+              value={selectedPackages[pkg.id] || ""}
+              onChange={(e) => {
+                if (e.target.value) {
+                  handlePackageSelection(pkg.id, e.target.value as "monthly" | "quarterly" | "yearly")
+                }
+              }}
+              className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            >
+              <option value="">Select Plan</option>
+              <option value="monthly">Monthly - ₦{Math.round(pkg.monthlyPrice).toLocaleString('en-NG')}</option>
+              <option value="quarterly">Quarterly - ₦{Math.round(pkg.quarterlyPrice).toLocaleString('en-NG')}</option>
+              <option value="yearly">Yearly - ₦{Math.round(pkg.yearlyPrice).toLocaleString('en-NG')}</option>
+            </select>
+
+          
+          </div>
 
           
           {pkg.promoCode && (
-            <div className="flex gap-2 items-center">
-              <input
-                type="text"
-                value={promoCodeInputs[pkg.id] || ''}
-                onChange={(e) => setPromoCodeInputs(prev => ({
-                  ...prev,
-                  [pkg.id]: e.target.value
-                }))}
-                placeholder="Enter promo code"
-                className="flex-1 px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 focus:border-transparent"
-              />
-              <button
-                onClick={() => {
-                  const enteredCode = promoCodeInputs[pkg.id]?.trim();
-                  if (enteredCode && pkg.promoCode && enteredCode.toLowerCase() === pkg.promoCode.toLowerCase()) {
-                    setAppliedPromoCodes(prev => ({
+            <div className="space-y-2">
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={promoCodeInputs[pkg.id] || ''}
+                  onChange={(e) => {
+                    setPromoCodeInputs(prev => ({
                       ...prev,
-                      [pkg.id]: {
-                        code: enteredCode,
-                        discount: pkg.discountPercentage || 0
-                      }
+                      [pkg.id]: e.target.value
                     }));
-                  } else {
-                    const newApplied = {...appliedPromoCodes};
-                    delete newApplied[pkg.id];
-                    setAppliedPromoCodes(newApplied);
+                    
+                  
+                    if (promoValidationStates[pkg.id]) {
+                      setPromoValidationStates(prev => {
+                        const newState = {...prev};
+                        delete newState[pkg.id];
+                        return newState;
+                      });
+                    }
+                  }}
+                  placeholder="Enter promo code"
+                  className="flex-1 px-3 py-1.5 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 focus:border-transparent"
+                />
+                <button
+                  onClick={() => validatePromoCode(pkg.id, promoCodeInputs[pkg.id] || '')}
+                  disabled={!promoCodeInputs[pkg.id]?.trim()}
+                  className={`px-3 py-1.5 text-xs rounded whitespace-nowrap ${
+                    appliedPromoCodes[pkg.id] 
+                      ? 'bg-green-100 text-green-800 border border-green-200' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
+                  } ${!promoCodeInputs[pkg.id]?.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {appliedPromoCodes[pkg.id] 
+                    ? 'Applied ✓' 
+                    : 'Apply'}
+                </button>
+              </div>
+              
+              {/* Message display - success or error */}
+              {promoValidationStates[pkg.id] && (
+                <div className={`text-xs p-2 rounded ${
+                  promoValidationStates[pkg.id].isValid 
+                    ? 'bg-green-50 text-green-700 border border-green-200' 
+                    : 'bg-red-50 text-red-700 border border-red-200'
+                }`}>
+                  {promoValidationStates[pkg.id].isValid 
+                    ? `✅ ${promoValidationStates[pkg.id].error}` 
+                    : `❌ ${promoValidationStates[pkg.id].error}`
                   }
-                }}
-                className={`px-3 py-1.5 text-xs rounded whitespace-nowrap ${
-                  appliedPromoCodes[pkg.id] 
-                    ? 'bg-green-100 text-green-800 border border-green-200' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300'
-                }`}
-              >
-                {appliedPromoCodes[pkg.id] ? 'Applied ✓' : 'Apply'}
-              </button>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-       
+        
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Number of Users
@@ -1216,22 +1315,29 @@ const SubscriptionPage: React.FC = () => {
             const selectedPackage = packages.find(p => p.id === firstPackageId);
             if (!selectedPackage) return undefined;
             
-            // Calculate with discount
+            // Calculate original price (without discount)
             const servicesForDuration = selectedPackage?.services?.filter(service => service.duration === billingCycle) || [];
             const totalCost = servicesForDuration.reduce((sum, service) => sum + (service.price || 0), 0);
-            const discountPercentage = selectedPackage?.discountPercentage || 0;
-            const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
-            const packageAmount = totalCost - discountAmount;
             
-            console.log(`📦 Selected package amount for ${billingCycle}:`, packageAmount);
+            console.log(`📦 Selected package original amount for ${billingCycle}:`, totalCost);
             console.log(`📦 Services for ${billingCycle}:`, servicesForDuration);
             
             return {
               packageName: selectedPackage.packageName,
               billingCycle: billingCycle,
-              amount: packageAmount
+              amount: totalCost
             };
           })()}
+          // Pass main page functions
+          getFilteredCountries={getFilteredCountries}
+          getFilteredStatesForLocation={getFilteredStatesForLocation}
+          getFilteredLgasForLocation={getFilteredLgasForLocation}
+          getFilteredCitiesForLocation={getFilteredCitiesForLocation}
+          getFilteredCityRegionsForLocation={getFilteredCityRegionsForLocation}
+          loadStatesForLocation={loadStatesForLocation}
+          loadLgasForLocation={loadLgasForLocation}
+          loadCitiesForLocation={loadCitiesForLocation}
+          loadCityRegionsForLocation={loadCityRegionsForLocation}
         />
 
 
@@ -1266,210 +1372,228 @@ const SubscriptionPage: React.FC = () => {
               </div>
             </div>
             
-            {/* Card Summary Section */}
-            <div className="mb-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-semibold text-gray-900">Order Summary</h3>
-                <div className="flex items-center text-sm text-gray-500">
-                  <CheckCircle className="w-4 h-4 mr-1 text-green-500" />
-                  <span>Ready for Payment</span>
-                </div>
+        
+           
+            
+           <div className="mb-8 bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+  <div className="flex items-center justify-between mb-6">
+    <h3 className="text-xl font-semibold text-gray-900">Order Summary</h3>
+    <div className="flex items-center text-sm text-gray-500">
+      <CheckCircle className="w-4 h-4 mr-1 text-green-500" />
+      <span>Ready for Payment</span>
+    </div>
+  </div>
+  
+  {/* Selected Packages Summary */}
+  <div className="mb-6">
+    <h4 className="font-medium text-gray-900 mb-3">Selected Packages</h4>
+    <div className="space-y-3">
+      {Object.entries(selectedPackages).map(([packageId, billingCycle]) => {
+        const pkg = packages.find(p => p.id === packageId);
+        if (!pkg) return null;
+        
+        const userCount = packageUserCounts[packageId] || pkg.maxUsers || 1;
+        
+       
+        const cycleServices = pkg.services.filter(service => service.duration === billingCycle);
+        const totalCost = cycleServices.reduce((sum, service) => sum + (service.price || 0), 0);
+        
+        // DISCOUNT LOGIC IS COMMENTED OUT – WE SHOW ONLY ORIGINAL PRICE
+        // const discountPercentage = pkg.discountPercentage || 0;
+        // const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
+        // const actualPrice = totalCost - discountAmount;
+        
+        console.log(`📦 Payment summary - ${pkg.packageName} (${billingCycle}): ₦${totalCost.toLocaleString()}`);
+        
+        return (
+          <div key={packageId} className="p-4 bg-gray-50 rounded-lg">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h5 className="font-medium text-gray-900">{pkg.packageName}</h5>
+                <p className="text-sm text-gray-600 capitalize font-medium">{billingCycle} Plan</p>
+                <p className="text-sm text-gray-600">{userCount} user{userCount > 1 ? 's' : ''}</p>
               </div>
-              
-              {/* Selected Packages Summary */}
-              <div className="mb-6">
-                <h4 className="font-medium text-gray-900 mb-3">Selected Packages</h4>
-                <div className="space-y-3">
-                  {Object.entries(selectedPackages).map(([packageId, billingCycle]) => {
-                    const pkg = packages.find(p => p.id === packageId);
-                    if (!pkg) return null;
-                    
-                    const userCount = packageUserCounts[packageId] || pkg.maxUsers || 1;
-                    
-                    // Calculate price with discount
-                    const cycleServices = pkg.services.filter(service => service.duration === billingCycle);
-                    const totalCost = cycleServices.reduce((sum, service) => sum + (service.price || 0), 0);
-                    const discountPercentage = pkg.discountPercentage || 0;
-                    const discountAmount = discountPercentage > 0 ? (totalCost * discountPercentage / 100) : 0;
-                    const actualPrice = totalCost - discountAmount;
-                    
-                    console.log(`📦 Payment summary - ${pkg.packageName} (${billingCycle}): ₦${actualPrice.toLocaleString()}`);
-                    
-                    return (
-                      <div key={packageId} className="p-4 bg-gray-50 rounded-lg">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <h5 className="font-medium text-gray-900">{pkg.packageName}</h5>
-                            <p className="text-sm text-gray-600 capitalize font-medium">{billingCycle} Plan</p>
-                            <p className="text-sm text-gray-600">{userCount} user{userCount > 1 ? 's' : ''}</p>
-                          </div>
-                          <div className="text-right">
-                            {discountAmount > 0 && (
-                              <p className="text-sm text-gray-500 line-through">₦{Math.round(totalCost).toLocaleString('en-NG')}</p>
-                            )}
-                            <p className="text-xl font-bold text-gray-900">₦{Math.round(actualPrice).toLocaleString('en-NG')}</p>
-                            {discountAmount > 0 && (
-                              <p className="text-xs text-green-600">Save ₦{Math.round(discountAmount).toLocaleString('en-NG')} ({discountPercentage}% off)</p>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Services included in this plan */}
-                        {cycleServices.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-gray-200">
-                            <p className="text-xs text-gray-500 mb-2">Services included:</p>
-                            <div className="space-y-1">
-                              {cycleServices.map((service: Service, idx: number) => (
-                                <div key={idx} className="flex justify-between text-xs text-gray-600">
-                                  <span>• {service.name}</span>
-                                  <span>₦{service.price.toLocaleString('en-NG')}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              
-              {/* Profile Summary */}
-              <div className="mb-6">
-                <h4 className="font-medium text-gray-900 mb-3">Organization Profile</h4>
-                <div className="flex items-center p-4 bg-blue-50 rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">Profile Visibility</p>
-                    <p className="text-sm text-gray-600">
-                      {organizationProfile.isPublicProfile ? 'Public Profile' : 'Private Profile'}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      {organizationProfile.businessType === 'registered' ? 'Registered Business' : 'Unregistered Business'}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${organizationProfile.isPublicProfile ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {organizationProfile.isPublicProfile ? 'Public' : 'Private'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Locations Summary (if public profile) */}
-              {organizationProfile.isPublicProfile && locations.length > 0 && (
-                <div className="mb-6">
-                  <h4 className="font-medium text-gray-900 mb-3">Location Verification Fees</h4>
-                  <div className="space-y-2">
-                    {locations.map((location, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center">
-                          <MapPin className="w-4 h-4 text-gray-400 mr-2" />
-                          <div>
-                            <p className="font-medium text-gray-900">{location.brandName || `Location ${index + 1}`}</p>
-                            <p className="text-sm text-gray-600">
-                              {location.city}, {location.state}, {location.country}
-                            </p>
-                            {location.pricingSource && (
-                              <p className="text-xs text-gray-500">{location.pricingSource}</p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          {location.cityRegionFee ? (
-                            <p className="font-semibold text-gray-900">₦{location.cityRegionFee.toLocaleString('en-NG')}</p>
-                          ) : (
-                            <p className="text-sm text-gray-500">Fee pending</p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  
-                  {/* Location Total */}
-                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium text-blue-900">Location Verification Total:</span>
-                      <span className="font-bold text-blue-900">
-                        ₦{locations.reduce((total, loc) => total + (loc.cityRegionFee || 0), 0).toLocaleString('en-NG')}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Total Summary */}
-              <div className="border-t border-gray-200 pt-4">
-                {/* Show breakdown if we have both package and location costs */}
-                {organizationProfile.isPublicProfile && locations.length > 0 && locations.some(loc => loc.cityRegionFee) ? (
-                  <div className="space-y-3">
-                    {/* Package Subtotal */}
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-medium text-gray-700">Package Subscription</p>
-                        <p className="text-sm text-gray-500">{Object.keys(selectedPackages).length} package(s)</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">
-                          ₦{Math.round(totalAmount - locations.reduce((total, loc) => total + (loc.cityRegionFee || 0), 0)).toLocaleString('en-NG')}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Location Subtotal */}
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-medium text-gray-700">Location Verification</p>
-                        <p className="text-sm text-gray-500">{locations.length} location(s)</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-gray-900">
-                          ₦{locations.reduce((total, loc) => total + (loc.cityRegionFee || 0), 0).toLocaleString('en-NG')}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Combined Total */}
-                    <div className="border-t border-gray-200 pt-3">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-xl font-bold text-gray-900">Total Amount</p>
-                          <p className="text-sm text-gray-500">Package + Location Verification</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-3xl font-bold text-purple-600">₦{Math.round(totalAmount).toLocaleString('en-NG')}</p>
-                          <p className="text-sm text-green-600">Combined Payment</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Simple total for package-only payments */
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-lg font-semibold text-gray-900">Total Amount</p>
-                      <p className="text-sm text-gray-500">{Object.keys(selectedPackages).length} package(s)</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-purple-600">₦{Math.round(totalAmount).toLocaleString('en-NG')}</p>
-                    </div>
-                  </div>
-                )}
+              <div className="text-right">
+                {/* Discounted price and strikethrough removed – only original price */}
+                {/* {discountAmount > 0 && (
+                  <p className="text-sm text-gray-500 line-through">₦{Math.round(totalCost).toLocaleString('en-NG')}</p>
+                )} */}
+                <p className="text-xl font-bold text-gray-900">₦{Math.round(totalCost).toLocaleString('en-NG')}</p>
+                {/* {discountAmount > 0 && (
+                  <p className="text-xs text-green-600">Save ₦{Math.round(discountAmount).toLocaleString('en-NG')} ({discountPercentage}% off)</p>
+                )} */}
               </div>
             </div>
             
-            {/* Payment Amount Banner */}
-            <div className="mb-8 bg-gradient-to-r from-purple-500 to-indigo-600 rounded-xl p-6 text-white">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold">Total Amount</h3>
-                  <p className="text-sm opacity-90">For all selected packages</p>
-                </div>
-                <div className="mt-3 md:mt-0">
-                  <p className="text-4xl font-bold">₦{Math.round(totalAmount).toLocaleString('en-NG')}</p>
-                  <p className="text-sm opacity-90">{Object.keys(selectedPackages).length} package(s)</p>
+            {/* Services included in this plan */}
+            {cycleServices.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <p className="text-xs text-gray-500 mb-2">Services included:</p>
+                <div className="space-y-1">
+                  {cycleServices.map((service: Service, idx: number) => (
+                    <div key={idx} className="flex justify-between text-xs text-gray-600">
+                      <span>• {service.name}</span>
+                      <span>₦{service.price.toLocaleString('en-NG')}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+  
+  {/* Profile Summary – unchanged */}
+  <div className="mb-6">
+    <h4 className="font-medium text-gray-900 mb-3">Organization Profile</h4>
+    <div className="flex items-center p-4 bg-blue-50 rounded-lg">
+      <div className="flex-1">
+        <p className="font-medium text-gray-900">Profile Visibility</p>
+        <p className="text-sm text-gray-600">
+          {organizationProfile.isPublicProfile ? 'Public Profile' : 'Private Profile'}
+        </p>
+        <p className="text-sm text-gray-600">
+          {organizationProfile.businessType === 'registered' ? 'Registered Business' : 'Unregistered Business'}
+        </p>
+      </div>
+      <div className="text-right">
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${organizationProfile.isPublicProfile ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+          {organizationProfile.isPublicProfile ? 'Public' : 'Private'}
+        </span>
+      </div>
+    </div>
+  </div>
+  
+  {/* Locations Summary (if public profile) – unchanged */}
+  {organizationProfile.isPublicProfile && locations.length > 0 && (
+    <div className="mb-6">
+      <h4 className="font-medium text-gray-900 mb-3">Location Verification Fees</h4>
+      <div className="space-y-2">
+        {locations.map((location, index) => (
+          <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center">
+              <MapPin className="w-4 h-4 text-gray-400 mr-2" />
+              <div>
+                <p className="font-medium text-gray-900">{location.brandName || `Location ${index + 1}`}</p>
+                <p className="text-sm text-gray-600">
+                  {location.city}, {location.state}, {location.country}
+                </p>
+                {location.pricingSource && (
+                  <p className="text-xs text-gray-500">{location.pricingSource}</p>
+                )}
+              </div>
             </div>
+            <div className="text-right">
+              {location.cityRegionFee ? (
+                <p className="font-semibold text-gray-900">₦{location.cityRegionFee.toLocaleString('en-NG')}</p>
+              ) : (
+                <p className="text-sm text-gray-500">Fee pending</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      {/* Location Total */}
+      <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <div className="flex justify-between items-center">
+          <span className="font-medium text-blue-900">Location Verification Total:</span>
+          <span className="font-bold text-blue-900">
+            ₦{locations.reduce((total, loc) => total + (loc.cityRegionFee || 0), 0).toLocaleString('en-NG')}
+          </span>
+        </div>
+      </div>
+    </div>
+  )}
+  
+  {/* Total Summary – update to use original package total */}
+  <div className="border-t border-gray-200 pt-4">
+    {organizationProfile.isPublicProfile && locations.length > 0 && locations.some(loc => loc.cityRegionFee) ? (
+      <div className="space-y-3">
+        {/* Package Subtotal – now using original total (no discount) */}
+        <div className="flex justify-between items-center">
+          <div>
+            <p className="font-medium text-gray-700">Package Subscription</p>
+            <p className="text-sm text-gray-500">{Object.keys(selectedPackages).length} package(s)</p>
+          </div>
+          <div className="text-right">
+            <p className="font-semibold text-gray-900">
+              ₦{Math.round(
+                Object.entries(selectedPackages).reduce((sum, [packageId, billingCycle]) => {
+                  const pkg = packages.find(p => p.id === packageId);
+                  if (!pkg) return sum;
+                  const cycleServices = pkg.services.filter(s => s.duration === billingCycle);
+                  const totalCost = cycleServices.reduce((s, service) => s + (service.price || 0), 0);
+                  return sum + totalCost;
+                }, 0)
+              ).toLocaleString('en-NG')}
+            </p>
+          </div>
+        </div>
+        
+        {/* Location Subtotal */}
+        <div className="flex justify-between items-center">
+          <div>
+            <p className="font-medium text-gray-700">Location Verification</p>
+            <p className="text-sm text-gray-500">{locations.length} location(s)</p>
+          </div>
+          <div className="text-right">
+            <p className="font-semibold text-gray-900">
+              ₦{locations.reduce((total, loc) => total + (loc.cityRegionFee || 0), 0).toLocaleString('en-NG')}
+            </p>
+          </div>
+        </div>
+        
+        {/* Combined Total */}
+        <div className="border-t border-gray-200 pt-3">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-xl font-bold text-gray-900">Total Amount</p>
+              <p className="text-sm text-gray-500">Package + Location Verification</p>
+            </div>
+            <div className="text-right">
+              <p className="text-3xl font-bold text-purple-600">
+                ₦{Math.round(
+                  Object.entries(selectedPackages).reduce((sum, [packageId, billingCycle]) => {
+                    const pkg = packages.find(p => p.id === packageId);
+                    if (!pkg) return sum;
+                    const cycleServices = pkg.services.filter(s => s.duration === billingCycle);
+                    const totalCost = cycleServices.reduce((s, service) => s + (service.price || 0), 0);
+                    return sum + totalCost;
+                  }, 0) + locations.reduce((total, loc) => total + (loc.cityRegionFee || 0), 0)
+                ).toLocaleString('en-NG')}
+              </p>
+              <p className="text-sm text-green-600">Combined Payment</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : (
+      /* Simple total for package-only payments – original price only */
+      <div className="flex justify-between items-center">
+        <div>
+          <p className="text-lg font-semibold text-gray-900">Total Amount</p>
+          <p className="text-sm text-gray-500">{Object.keys(selectedPackages).length} package(s)</p>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-bold text-purple-600">
+            ₦{Math.round(
+              Object.entries(selectedPackages).reduce((sum, [packageId, billingCycle]) => {
+                const pkg = packages.find(p => p.id === packageId);
+                if (!pkg) return sum;
+                const cycleServices = pkg.services.filter(s => s.duration === billingCycle);
+                const totalCost = cycleServices.reduce((s, service) => s + (service.price || 0), 0);
+                return sum + totalCost;
+              }, 0)
+            ).toLocaleString('en-NG')}
+          </p>
+        </div>
+      </div>
+    )}
+  </div>
+</div>
 
             {userLimitError && (
               <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">

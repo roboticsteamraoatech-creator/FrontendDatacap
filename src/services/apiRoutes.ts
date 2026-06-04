@@ -1,14 +1,4 @@
-console.log('apiRoutes: File initialization started');
-console.log('apiRoutes: Module loading started');
-console.log('apiRoutes: Module loading started');
-console.log('apiRoutes: File initialization started');
-console.log('apiRoutes: Module initialization started');
-console.log('apiRoutes: File loading started');
-console.log('apiRoutes: Module loading started');
-console.log('apiRoutes: File execution started');
-console.log('apiRoutes: Module execution started');
-console.log('apiRoutes: Starting file execution');
-console.log('apiRoutes: Initializing routes object');
+
 
 export const routes = {
   // User profile routes
@@ -182,6 +172,17 @@ deleteService: (id: string) => `/api/services/${id}`,
     mediaUsage: '/api/admin/gallery/media-usage'
   },
   
+  // Admin booking management routes
+  adminBooking: {
+    availableDays: '/api/admin/booking/available-days',
+    availableSlots: '/api/admin/booking/available-slots',
+    organizationUsers: '/api/admin/booking/organization-users',
+    serviceProviders: '/api/admin/booking/service-providers',
+    locationOptions: '/api/admin/booking/location-options',
+    validateLocation: 'https://datacapture-backend.onrender.com/api/admin/booking/validate-location',
+    createBooking: '/api/admin/booking/create',
+  },
+  
     getDefaultPricing: (page?: number, limit?: number, country?: string, state?: string) => {
     let url = '/api/super-admin/default-pricing';
     const params = new URLSearchParams();
@@ -217,4 +218,3 @@ deleteService: (id: string) => `/api/services/${id}`,
 };
 
 // Log gallery routes for debugging
-console.log('apiRoutes: Gallery routes defined:', routes.gallery);

@@ -13,10 +13,23 @@ const VerificationClientComponent = () => {
   const [verificationData, setVerificationData] = useState<any>(null);
 
   useEffect(() => {
-    const status = searchParams.get('status');
-    const transactionId = searchParams.get('transaction_id');
+    // Get the raw URL and decode it to handle double encoding
+    const rawUrl = window.location.href;
+    
+    // Decode the URL to fix &amp; issues
+    const decodedUrl = rawUrl.replace(/&amp;/g, '&');
+    
+    // Parse the decoded URL
+    const urlObj = new URL(decodedUrl);
+    const decodedParams = new URLSearchParams(urlObj.search);
+    
+    const status = decodedParams.get('status') || searchParams.get('status');
+    const transactionId = decodedParams.get('tx_ref') || decodedParams.get('transaction_id') || 
+                          searchParams.get('tx_ref') || searchParams.get('transaction_id');
     
     if (status === 'success' && transactionId) {
+      verifyLocationPayment(transactionId);
+    } else if (status === 'successful' && transactionId) {
       verifyLocationPayment(transactionId);
     } else if (status === 'cancelled') {
       setVerificationStatus('failed');
@@ -39,9 +52,8 @@ const VerificationClientComponent = () => {
         setVerificationData(response.data);
         setMessage('Location verification payment successful! Your profile will be updated to pending verification status.');
         
-        // Redirect to subscription packages after 3 seconds
         setTimeout(() => {
-          router.push('/subscription');
+          router.push('/admin/subscription/verification-badge');
         }, 3000);
       } else {
         setVerificationStatus('failed');
@@ -49,7 +61,16 @@ const VerificationClientComponent = () => {
       }
     } catch (error: any) {
       setVerificationStatus('failed');
-      setMessage(error.message || 'An error occurred during payment verification.');
+      
+      if (error.message?.includes('Authentication')) {
+        setMessage('Please log in to verify your payment. Redirecting to login...');
+        setTimeout(() => {
+          localStorage.setItem('redirectAfterLogin', window.location.href);
+          router.push('/auth/login');
+        }, 2000);
+      } else {
+        setMessage(error.message || 'An error occurred during payment verification.');
+      }
     }
   };
 
@@ -155,6 +176,8 @@ const VerificationClientComponent = () => {
             Please wait while we verify your payment...
           </p>
         )}
+
+
       </div>
     </div>
   );

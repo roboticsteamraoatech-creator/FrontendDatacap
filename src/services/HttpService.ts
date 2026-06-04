@@ -1,13 +1,4 @@
-console.log('HttpService: File initialization started');
-console.log('HttpService: Module loading started');
-console.log('HttpService: File initialization started');
-console.log('HttpService: Module initialization started');
-console.log('HttpService: File loading started');
-console.log('HttpService: Module loading started');
-console.log('HttpService: File execution started');
-console.log('HttpService: Module execution started');
-console.log('HttpService: Starting file execution');
-console.log('HttpService: Initializing service');
+
 export class HttpService {
   private baseUrl: string;
 
@@ -16,13 +7,18 @@ export class HttpService {
   }
 
   private getHeaders(): HeadersInit {
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
 
     // Add authorization header if token exists
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
+      // Try localStorage first, then sessionStorage as fallback
+      let token = localStorage.getItem('token');
+      if (!token) {
+        token = sessionStorage.getItem('token');
+      }
+      
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
@@ -37,7 +33,6 @@ export class HttpService {
       try {
         errorData = await response.json();
       } catch (e) {
-        // If response is not JSON, try to get text or use status text
         const errorText = await response.text().catch(() => `HTTP error! status: ${response.status}`);
         throw new Error(errorText || `HTTP error! status: ${response.status}`);
       }
@@ -49,34 +44,41 @@ export class HttpService {
       
       // Handle subscription-related errors
       if (errorData.message?.includes('subscription') || errorData.message?.includes('Active subscription required')) {
-        // Re-throw subscription errors to let SubscriptionGuard handle them
         throw new Error(errorData.message);
       }
       
-      // Handle 404 errors specifically
+      // Handle 404 errors - preserve backend message
       if (response.status === 404) {
-        throw new Error(`Endpoint not found (${response.url}). Please check if the backend API is running and the endpoint exists.`);
+        throw new Error(errorData.message || `Endpoint not found (${response.url}). Please check if the backend API is running and the endpoint exists.`);
       }
       
       throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     }
-    return response.json();
+    
+    const responseData = await response.json();
+    return responseData;
   }
 
   async getData<T>(endpoint: string): Promise<T> {
+    const headers = this.getHeaders();
+    
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       method: 'GET',
-      headers: this.getHeaders(),
+      headers: headers,
     });
+    
     return this.handleResponse<T>(response);
   }
 
   async postData<T>(data: any, endpoint: string): Promise<T> {
+    const headers = this.getHeaders() as Record<string, string>;
+    
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
-      headers: this.getHeaders(),
+      headers: headers,
       body: JSON.stringify(data),
     });
+    
     return this.handleResponse<T>(response);
   }
 

@@ -70,11 +70,15 @@ class PaymentService {
 
   async verifyPayment(request: VerifyPaymentRequest): Promise<VerifyPaymentResponse> {
     try {
-      const url = '/api/payment/verify'; // Using direct path since it's not in the routes file
-      const response = await this.httpService.postData<VerifyPaymentResponse>(request, url);
+      const url = '/api/payment/verify';
+      
+      const response = await this.httpService.postData<VerifyPaymentResponse>(
+        { tx_ref: request.transactionId },
+        url
+      );
+      
       return response;
     } catch (error) {
-      console.error('Error verifying payment:', error);
       throw error;
     }
   }

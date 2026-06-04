@@ -1,6 +1,7 @@
 
 
 
+
 "use client";
 
 import React, { Dispatch, SetStateAction, ReactNode, useState, useEffect, useRef } from 'react';
@@ -20,7 +21,8 @@ import {
   MapPin,
   ClipboardList,
   FileCheck,
-  Truck // Added for Pickup Center
+  Truck, // Added for Pickup Center
+  Smartphone // Added for Mobile App Statics
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -126,6 +128,12 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
       icon: <Home className="w-6 h-6 text-[#dcdcdc]" />,
     },
     { 
+      id: 'mobile-app-statics', 
+      name: 'Mobile App Statics', 
+      route: '/super-admin/mobile-app-statics', 
+      icon: <Smartphone className="w-6 h-6 text-[#dcdcdc]" />,
+    },
+    { 
       id: 'role-management', 
       name: 'Role Management', 
       route: '/super-admin/role-management', 
@@ -142,6 +150,12 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
       name: 'Organisation', 
       route: '/super-admin/organisation', 
       icon: <Users className="w-6 h-6 text-[#dcdcdc]" />,
+    },
+    { 
+      id: 'remittance', 
+      name: 'Remittance to Organisation', 
+      route: '/super-admin/remittance', 
+      icon: <DollarSign className="w-6 h-6 text-[#dcdcdc]" />,
     },
     { 
       id: 'service', 
@@ -164,6 +178,11 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
           id: 'verified-badge-subscription',
           name: 'Verified Badge Subscription',
           route: '/super-admin/subscription/verified-badge' 
+        },
+        {
+          id: 'pending-locations',
+          name: 'Pending Locations',
+          route: '/super-admin/subscription/verified-badge/pending-locations'  
         },
         {
           id: 'rejected-locations',
@@ -245,8 +264,25 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
     { 
       id: 'data-verification', 
       name: 'Data Verification', 
-      route: '/super-admin/data-verification', 
+      route: undefined,
       icon: <FileCheck className="w-6 h-6 text-[#dcdcdc]" />,
+      subItems: [
+        {
+          id: 'all-verifications',
+          name: 'All Verifications',
+          route: '/super-admin/data-verification'
+        },
+        {
+          id: 'verification-assignment',
+          name: 'Verification Assignment',
+          route: '/super-admin/data-verification/assignment'
+        },
+        {
+          id: 'field-agents',
+          name: 'Field Agents',
+          route: '/super-admin/data-verification/field-agents'
+        }
+      ]
     },
     { 
       id: 'organization-categories', 
@@ -254,6 +290,7 @@ export const SuperAdminSidebar: React.FC<SidebarProps> = ({ onShow, setShow }) =
       route: '/super-admin/organization-categories', 
       icon: <Package className="w-6 h-6 text-[#dcdcdc]" />,
     },
+    
   ];
 
   // Auto-expand subscription and payments menus if on related pages

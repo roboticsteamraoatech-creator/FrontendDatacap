@@ -1,64 +1,31 @@
-
-
-
-
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Upload, Image as ImageIcon, Video, Calendar, DollarSign, Tag, Check, Briefcase, Package, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Upload, Image as ImageIcon, Video, Calendar, DollarSign, Tag, Check, Briefcase, Package, AlertCircle, Plus, Trash2 } from 'lucide-react';
 
 import { GalleryService } from '@/services/GalleryService';
 import { useAuthContext } from '@/AuthContext';
+import ServiceFields from '@/app/components/gallery/ServiceFields';
+import MediaUpload from '@/app/components/gallery/MediaUpload';
+import PricingSection from '@/app/components/gallery/PricingSection';
+import { 
+  SubService, 
+  TimeWindow, 
+  DayAvailability, 
+  AvailabilityPeriod, 
+  BookingAvailability, 
+  FormData, 
+  Industry, 
+  Category, 
+  PlatformCommission, 
+  PlatformCodePreview,
+  DayName
+} from '@/types/gallery';
 
-interface FormData {
-  name: string; 
-  description: string;
-  industryId: string;
-  categoryId: string;
-  category: string;
-  itemType: 'product' | 'service';
-  sku: string;
-  upc: string;
-  platformUniqueCode: string;
-  totalAvailableQuantity: number;
-  priceInNaira: number; // Changed from priceInDollars
-  discountPercentage: number;
-  upfrontPaymentPercentage: number;
-  platformChargePercentage: number;
-  platformCommissionId?: string;
-  startDate: string;
-  startTime: string;
-  endDate: string;
-  endTime: string;
-  visibilityToPublic: boolean;
-  notes: string;
-  locationIndex: number;
-}
 
-interface Industry {
-  value: string;
-  label: string;
-}
 
-interface Category {
-  id: string;
-  name: string;
-}
-
-interface PlatformCommission {
-  id: string;
-  commissionName: string;
-  commissionRate: number;
-  industryId: string;
-  categoryId: string;
-}
-
-interface PlatformCodePreview {
-  platformUniqueCode: string;
-  orgProductNumber: string;
-  globalProductNumber: string;
-}
+const DAY_NAMES: DayName[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const CreateGalleryItemPage = () => {
   const router = useRouter();
@@ -76,6 +43,10 @@ const CreateGalleryItemPage = () => {
   const [loadingLocations, setLoadingLocations] = useState(true);
   const [loadingCommission, setLoadingCommission] = useState(false);
   const [loadingCodePreview, setLoadingCodePreview] = useState(true);
+
+
+  const [commissionError, setCommissionError] = useState<string | null>(null);
+const [commissionLoading, setCommissionLoading] = useState(false);
 
   const [locations, setLocations] = useState<Array<{
     value: number;
@@ -109,7 +80,25 @@ const CreateGalleryItemPage = () => {
     endTime: '',
     visibilityToPublic: true,
     notes: '',
-    locationIndex: 0
+    locationIndex: -1,
+    // Service-specific fields
+    producer: '',
+    totalAvailableServiceProviders: 1,
+    hasSubServices: false,
+    subServices: [],
+    bookingAvailability: {
+      daysAvailable: DAY_NAMES.map((_, index) => ({
+        dayOfWeek: index,
+        isAvailable: index >= 1 && index <= 5, // Monday-Friday by default
+        timeWindows: [{ startTime: '09:00', endTime: '17:00' }]
+      })),
+      slotDurationMinutes: 60,
+      concurrentProviders: 1,
+      availabilityPeriod: {
+        type: 'unlimited'
+      },
+      timezone: 'Africa/Lagos'
+    }
   });
   
   const [images, setImages] = useState<File[]>([]);
@@ -159,8 +148,18 @@ const CreateGalleryItemPage = () => {
       
       try {
         setLoadingLocations(true);
+        console.log('Create Gallery: Fetching locations...');
         const locationsList = await GalleryService.getLocationsForSelect(token);
+        console.log('Create Gallery: Locations fetched:', locationsList);
         setLocations(locationsList);
+        
+        if (locationsList.length === 0) {
+          console.warn('Create Gallery: No locations available');
+        } else {
+          locationsList.forEach((loc, idx) => {
+            console.log(`Create Gallery: Location ${idx} - Value: ${loc.value}, Disabled: ${loc.disabled}, Label: ${loc.label}`);
+          });
+        }
       } catch (error) {
         console.error('Error fetching locations:', error);
         setLocations([]);
@@ -240,37 +239,53 @@ useEffect(() => {
     fetchCategories();
   }, [token, formData.industryId]);
 
-  // Fetch platform commission when category is selected
-  useEffect(() => {
-    const fetchPlatformCommission = async () => {
-      if (!token || !formData.categoryId) {
-        setPlatformCommission(null);
-        setFormData(prev => ({ ...prev, platformChargePercentage: 0, platformCommissionId: undefined }));
-        return;
-      }
+  // Fetch platform commission when category is selected - USING ADMIN ENDPOINT
+useEffect(() => {
+  const fetchPlatformCommission = async () => {
+    if (!token || !formData.categoryId) {
+      setPlatformCommission(null);
+      setFormData(prev => ({ ...prev, platformChargePercentage: 0, platformCommissionId: undefined }));
+      return;
+    }
+    
+    try {
+      setCommissionLoading(true);
+      setCommissionError(null);
       
-      try {
-        setLoadingCommission(true);
-        const result = await GalleryService.getPlatformCommissionByCategory(token, formData.categoryId);
+      // Use the admin endpoint instead of super-admin
+      const result = await GalleryService.getCommissionByCategory(token, formData.categoryId);
+      
+      if (result.success && result.data?.commission) {
+        const commission = result.data.commission;
+        setPlatformCommission(commission);
+        setFormData(prev => ({
+          ...prev,
+          platformChargePercentage: commission.commissionRate,
+          platformCommissionId: commission.id
+        }));
+        setCommissionError(null); // Clear any previous error
+      } else {
+        // No commission found for this category
+        setPlatformCommission(null);
+        setFormData(prev => ({
+          ...prev,
+          platformChargePercentage: 0,
+          platformCommissionId: undefined
+        }));
         
-        if (result.success && result.data?.commission) {
-          const commission = result.data.commission;
-          setPlatformCommission(commission);
-          setFormData(prev => ({
-            ...prev,
-            platformChargePercentage: commission.commissionRate,
-            platformCommissionId: commission.id
-          }));
-        }
-      } catch (error) {
-        console.error('Error fetching platform commission:', error);
-      } finally {
-        setLoadingCommission(false);
+        const errorMsg = result.message || 'No platform commission found for this category. Please contact Super Admin.';
+        setCommissionError(errorMsg);
       }
-    };
+    } catch (error) {
+    
+      setCommissionError('Failed to load commission rate');
+    } finally {
+      setCommissionLoading(false);
+    }
+  };
 
-    fetchPlatformCommission();
-  }, [token, formData.categoryId]);
+  fetchPlatformCommission();
+}, [token, formData.categoryId]);
 
   const checkMediaLimits = async () => {
     if (!token) return false;
@@ -304,8 +319,7 @@ useEffect(() => {
     return false;
   };
 
-  // Remove default dates - they should be empty
-  // No useEffect for default dates
+
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -328,6 +342,43 @@ useEffect(() => {
 
     if (!formData.itemType) {
       newErrors.itemType = 'Item type is required';
+    }
+
+    // Remove producer validation for services
+    if (formData.itemType === 'service') {
+      // Producer field removed - no validation needed
+      if (formData.totalAvailableServiceProviders < 1) {
+        newErrors.totalAvailableServiceProviders = 'At least 1 service provider is required';
+      }
+      if (formData.hasSubServices && formData.subServices.length === 0) {
+        newErrors.subServices = 'At least one sub-service is required';
+      }
+     
+      if (formData.hasSubServices && formData.subServices.length < 2) {
+        newErrors.subServices = 'At least 2 sub-services are required when sub-services are enabled';
+      }
+      if (formData.hasSubServices && formData.subServices.length > 100) {
+        newErrors.subServices = 'Maximum 100 sub-services allowed';
+      }
+   
+      formData.subServices.forEach((sub, idx) => {
+        if (!sub.name.trim()) {
+          newErrors[`subService_${idx}_name`] = `Sub-service ${idx + 1} name is required`;
+        }
+        if (sub.price <= 0) {
+          newErrors[`subService_${idx}_price`] = `Sub-service ${idx + 1} price must be greater than 0`;
+        }
+      });
+      
+      
+      if (formData.bookingAvailability.availabilityPeriod.type === 'dateRange') {
+        if (!formData.startDate) {
+          newErrors.startDate = 'Start date is required for date range availability';
+        }
+        if (!formData.endDate) {
+          newErrors.endDate = 'End date is required for date range availability';
+        }
+      }
     }
 
     if (formData.priceInNaira <= 0) {
@@ -358,92 +409,297 @@ useEffect(() => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!validateForm()) return;
-    
-    if (!token) {
-      setErrors({ general: 'Authentication required' });
-      return;
-    }
 
-    // Check media limits before proceeding
+  
+  // const handleSubmit = async (e: React.FormEvent) => {
+  //   e.preventDefault();
+    
+  //   if (!validateForm()) return;
+    
+  //   if (!token) {
+  //     setErrors({ general: 'Authentication required' });
+  //     return;
+  //   }
+
+   
+  //   const limits = await checkMediaLimits();
+  //   if (limits && images.length > limits.images.remaining) {
+  //     setErrors({ images: `You only have ${limits.images.remaining} image slots available` });
+  //     return;
+  //   }
+  //   if (limits && videos.length > limits.videos.remaining) {
+  //     setErrors({ videos: `You only have ${limits.videos.remaining} video slots available` });
+  //     return;
+  //   }
+
+  //   setLoading(true);
+  //   setErrors({});
+
+  //   try {
+  //     console.log('Create page: Creating gallery item with data:', formData);
+      
+  
+  //     const selectedCategory = categories.find(c => c.id === formData.categoryId);
+      
+  //     const galleryData: any = {
+  //       name: formData.name,
+  //       description: formData.description.trim(),
+  //       category: selectedCategory?.name || formData.category,
+  //       categoryId: formData.categoryId,
+  //       industryId: formData.industryId,
+  //       itemType: formData.itemType,
+  //       sku: formData.itemType === 'product' ? (formData.sku || undefined) : undefined,
+  //       upc: formData.itemType === 'product' ? (formData.upc || undefined) : undefined,
+  //       platformUniqueCode: formData.platformUniqueCode || undefined,
+  //       totalAvailableQuantity: Number(formData.totalAvailableQuantity) || 0,
+  //       priceInDollars: Number(formData.priceInNaira) || 0,
+  //       discountPercentage: Number(formData.discountPercentage) || 0,
+  //       upfrontPaymentPercentage: Number(formData.upfrontPaymentPercentage) || 0,
+  //       platformChargePercentage: formData.platformChargePercentage,
+  //       startDate: formData.startDate,
+  //       startTime: formData.startTime,
+  //       endDate: formData.endDate,
+  //       endTime: formData.endTime,
+  //       visibilityToPublic: formData.visibilityToPublic,
+  //       notes: formData.notes || undefined,
+  //       locationIndex: formData.locationIndex >= 0 ? Number(formData.locationIndex) : 0
+  //     };
+
+  
+  //     if (formData.itemType === 'service') {
+  //       // Producer field removed - not included in submission
+  //       galleryData.totalAvailableServiceProviders = Number(formData.totalAvailableServiceProviders);
+  //       galleryData.hasSubServices = formData.hasSubServices;
+        
+  //       if (formData.hasSubServices && formData.subServices.length > 0) {
+  //         galleryData.subServiceCount = formData.subServices.length;
+  //         galleryData.subServices = formData.subServices.map(sub => ({
+  //           name: sub.name,
+  //           description: sub.description,
+  //           price: Number(sub.price)
+  //         }));
+  //       }
+
+  //       // Add availability for services (simple date range)
+  //       galleryData.availability = {
+  //         type: formData.bookingAvailability.availabilityPeriod.type === 'dateRange' ? 'dateRange' : 'unlimited',
+  //         startDate: formData.startDate,
+  //         startTime: formData.startTime || '00:00',
+  //         endDate: formData.endDate,
+  //         endTime: formData.endTime || '23:59'
+  //       };
+
+  //       // Add booking availability for services (detailed booking config)
+  //       galleryData.bookingAvailability = {
+  //         daysAvailable: formData.bookingAvailability.daysAvailable,
+  //         slotDurationMinutes: Number(formData.bookingAvailability.slotDurationMinutes),
+  //         concurrentProviders: Number(formData.bookingAvailability.concurrentProviders),
+  //         availabilityPeriod: {
+  //           type: formData.bookingAvailability.availabilityPeriod.type,
+            
+  //           ...(formData.bookingAvailability.availabilityPeriod.type === 'dateRange' && {
+  //             startDate: formData.startDate,
+  //             endDate: formData.endDate
+  //           }),
+            
+  //           ...(formData.bookingAvailability.availabilityPeriod.type === 'rollingWeeks' && {
+  //             weeksAhead: formData.bookingAvailability.availabilityPeriod.weeksAhead || 6
+  //           })
+  //         },
+  //         timezone: formData.bookingAvailability.timezone
+  //       };
+        
+  //       console.log('Service-specific data being sent:', {
+  //         totalAvailableServiceProviders: galleryData.totalAvailableServiceProviders,
+  //         hasSubServices: galleryData.hasSubServices,
+  //         subServices: galleryData.subServices,
+  //         availability: galleryData.availability,
+  //         bookingAvailability: galleryData.bookingAvailability
+  //       });
+  //     }
+      
+  //     const result = await GalleryService.createGalleryItem(token, galleryData);
+
+  //     if (result.success && result.data?.galleryItem?._id) {
+  //       const galleryItemId = result.data.galleryItem._id;
+        
+      
+  //       if (images.length > 0) {
+  //         console.log('Create page: Uploading', images.length, 'images');
+  //         for (let i = 0; i < images.length; i++) {
+         
+  //           const isMainImage = i === 0;
+  //           console.log(`Create page: Uploading image ${i + 1}/${images.length}, isMain: ${isMainImage}`);
+  //           const uploadResult = await GalleryService.uploadImage(token, galleryItemId, images[i], isMainImage);
+  //           if (!uploadResult.success) {
+  //             console.error(`Failed to upload image ${i + 1}:`, uploadResult.message);
+  //           }
+  //         }
+  //       }
+
+       
+  //       if (videos.length > 0) {
+  //         console.log('Create page: Uploading', videos.length, 'videos');
+  //         for (let i = 0; i < videos.length; i++) {
+  //           console.log(`Create page: Uploading video ${i + 1}/${videos.length}`);
+  //           const uploadResult = await GalleryService.uploadVideo(token, galleryItemId, videos[i]);
+  //           if (!uploadResult.success) {
+  //             console.error(`Failed to upload video ${i + 1}:`, uploadResult.message);
+  //           }
+  //         }
+  //       }
+
+  //       setSuccess(true);
+  //       setTimeout(() => {
+  //         router.push('/admin/gallery');
+  //       }, 2000);
+  //     } else {
+  //       setErrors({ general: result.message || 'Failed to create gallery item' });
+  //     }
+  //   } catch (error: any) {
+  //     console.error('Error creating gallery item:', error);
+  //     setErrors({ general: error.message || 'An unexpected error occurred' });
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+
+
+  const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  // 1. Basic validation
+  if (!validateForm()) return;
+
+  if (!token) {
+    setErrors({ general: 'Authentication required' });
+    return;
+  }
+
+  // 2. 🔥 Show loading IMMEDIATELY – button becomes disabled & spinner appears
+  setLoading(true);
+  setErrors({});
+
+  try {
+    // 3. Check media limits (still async, but user sees feedback now)
     const limits = await checkMediaLimits();
     if (limits && images.length > limits.images.remaining) {
       setErrors({ images: `You only have ${limits.images.remaining} image slots available` });
+      setLoading(false);
       return;
     }
     if (limits && videos.length > limits.videos.remaining) {
       setErrors({ videos: `You only have ${limits.videos.remaining} video slots available` });
+      setLoading(false);
       return;
     }
 
-    setLoading(true);
-    setErrors({});
+    // 4. Prepare gallery data
+    const selectedCategory = categories.find(c => c.id === formData.categoryId);
 
-    try {
-      console.log('Create page: Creating gallery item with data:', formData);
-      
-      // Get the selected category name
-      const selectedCategory = categories.find(c => c.id === formData.categoryId);
-      
-      const result = await GalleryService.createGalleryItem(token, {
-        name: formData.name,
-        description: formData.description.trim(),
-        category: selectedCategory?.name || formData.category,
-        categoryId: formData.categoryId,
-        industryId: formData.industryId,
-        itemType: formData.itemType,
-        sku: formData.sku || undefined,
-        upc: formData.upc || undefined,
-        platformUniqueCode: formData.platformUniqueCode || undefined,
-        totalAvailableQuantity: Number(formData.totalAvailableQuantity) || 0,
-        priceInDollars: Number(formData.priceInNaira) || 0, // Send as priceInDollars but value is NGN
-        discountPercentage: Number(formData.discountPercentage) || 0,
-        upfrontPaymentPercentage: Number(formData.upfrontPaymentPercentage) || 0,
-        platformChargePercentage: formData.platformChargePercentage,
-        startDate: formData.startDate,
-        startTime: formData.startTime,
-        endDate: formData.endDate,
-        endTime: formData.endTime,
-        visibilityToPublic: formData.visibilityToPublic,
-        notes: formData.notes || undefined,
-        locationIndex: Number(formData.locationIndex) || 0
-      });
+    const galleryData: any = {
+      name: formData.name,
+      description: formData.description.trim(),
+      category: selectedCategory?.name || formData.category,
+      categoryId: formData.categoryId,
+      industryId: formData.industryId,
+      itemType: formData.itemType,
+      sku: formData.itemType === 'product' ? (formData.sku || undefined) : undefined,
+      upc: formData.itemType === 'product' ? (formData.upc || undefined) : undefined,
+      platformUniqueCode: formData.platformUniqueCode || undefined,
+      totalAvailableQuantity: Number(formData.totalAvailableQuantity) || 0,
+      priceInDollars: Number(formData.priceInNaira) || 0,
+      discountPercentage: Number(formData.discountPercentage) || 0,
+      upfrontPaymentPercentage: Number(formData.upfrontPaymentPercentage) || 0,
+      platformChargePercentage: formData.platformChargePercentage,
+      startDate: formData.startDate,
+      startTime: formData.startTime,
+      endDate: formData.endDate,
+      endTime: formData.endTime,
+      visibilityToPublic: formData.visibilityToPublic,
+      notes: formData.notes || undefined,
+      locationIndex: formData.locationIndex >= 0 ? Number(formData.locationIndex) : 0
+    };
 
-      if (result.success && result.data?._id) {
-        // Upload images if any
-        if (images.length > 0) {
-          console.log('Create page: Uploading', images.length, 'images');
-          for (const image of images) {
-            await GalleryService.uploadImage(token, result.data._id, image);
-          }
-        }
+    // 5. Add service‑specific fields if needed
+    if (formData.itemType === 'service') {
+      galleryData.totalAvailableServiceProviders = Number(formData.totalAvailableServiceProviders);
+      galleryData.hasSubServices = formData.hasSubServices;
 
-        // Upload videos if any
-        if (videos.length > 0) {
-          console.log('Create page: Uploading', videos.length, 'videos');
-          for (const video of videos) {
-            await GalleryService.uploadVideo(token, result.data._id, video);
-          }
-        }
-
-        setSuccess(true);
-        setTimeout(() => {
-          router.push('/admin/gallery');
-        }, 2000);
-      } else {
-        setErrors({ general: result.message || 'Failed to create gallery item' });
+      if (formData.hasSubServices && formData.subServices.length > 0) {
+        galleryData.subServiceCount = formData.subServices.length;
+        galleryData.subServices = formData.subServices.map(sub => ({
+          name: sub.name,
+          description: sub.description,
+          price: Number(sub.price)
+        }));
       }
-    } catch (error: any) {
-      console.error('Error creating gallery item:', error);
-      setErrors({ general: error.message || 'An unexpected error occurred' });
-    } finally {
+
+      galleryData.availability = {
+        type: formData.bookingAvailability.availabilityPeriod.type === 'dateRange' ? 'dateRange' : 'unlimited',
+        startDate: formData.startDate,
+        startTime: formData.startTime || '00:00',
+        endDate: formData.endDate,
+        endTime: formData.endTime || '23:59'
+      };
+
+      galleryData.bookingAvailability = {
+        daysAvailable: formData.bookingAvailability.daysAvailable,
+        slotDurationMinutes: Number(formData.bookingAvailability.slotDurationMinutes),
+        concurrentProviders: Number(formData.bookingAvailability.concurrentProviders),
+        availabilityPeriod: {
+          type: formData.bookingAvailability.availabilityPeriod.type,
+          ...(formData.bookingAvailability.availabilityPeriod.type === 'dateRange' && {
+            startDate: formData.startDate,
+            endDate: formData.endDate
+          }),
+          ...(formData.bookingAvailability.availabilityPeriod.type === 'rollingWeeks' && {
+            weeksAhead: formData.bookingAvailability.availabilityPeriod.weeksAhead || 6
+          })
+        },
+        timezone: formData.bookingAvailability.timezone
+      };
+    }
+
+    // 6. Create gallery item
+    const result = await GalleryService.createGalleryItem(token, galleryData);
+
+    if (result.success && result.data?.galleryItem?._id) {
+      const galleryItemId = result.data.galleryItem._id;
+
+      // Upload images
+      if (images.length > 0) {
+        console.log('Uploading', images.length, 'images');
+        for (let i = 0; i < images.length; i++) {
+          const isMainImage = i === 0;
+          await GalleryService.uploadImage(token, galleryItemId, images[i], isMainImage);
+        }
+      }
+
+      // Upload videos
+      if (videos.length > 0) {
+        console.log('Uploading', videos.length, 'videos');
+        for (let i = 0; i < videos.length; i++) {
+          await GalleryService.uploadVideo(token, galleryItemId, videos[i]);
+        }
+      }
+
+      // Success
+      setSuccess(true);
+      setTimeout(() => {
+        router.push('/admin/gallery');
+      }, 2000);
+    } else {
+      setErrors({ general: result.message || 'Failed to create gallery item' });
       setLoading(false);
     }
-  };
-
+  } catch (error: any) {
+    console.error('Error creating gallery item:', error);
+    setErrors({ general: error.message || 'An unexpected error occurred' });
+    setLoading(false);
+  }
+};
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const limits = await checkMediaLimits();
@@ -590,10 +846,7 @@ useEffect(() => {
                   readOnly
                   className="w-full px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg text-purple-800 font-mono text-sm cursor-not-allowed"
                 />
-                {/* <p className="text-xs text-purple-600 mt-1">
-                  This product will be #{platformCodePreview.orgProductNumber} in your organization and 
-                  #{platformCodePreview.globalProductNumber} globally
-                </p> */}
+               
               </div>
             </div>
           </div>
@@ -693,13 +946,19 @@ useEffect(() => {
             </label>
             <select
               value={formData.locationIndex}
-              onChange={(e) => setFormData(prev => ({ ...prev, locationIndex: parseInt(e.target.value) }))}
+              onChange={(e) => {
+                const selectedValue = e.target.value;
+                
+                const locationIdx = selectedValue === '' ? -1 : parseInt(selectedValue);
+          
+                setFormData(prev => ({ ...prev, locationIndex: locationIdx }));
+              }}
               className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent ${
                 errors.locationIndex ? 'border-red-500' : 'border-gray-300'
               }`}
               disabled={loadingLocations}
             >
-              <option value="0">No location selected</option>
+              <option value={-1}>No location selected</option>
               {locations.map((location) => (
                 <option 
                   key={location.value} 
@@ -707,10 +966,15 @@ useEffect(() => {
                   disabled={location.disabled}
                 >
                   {location.label}
-                  {!location.isPaidFor && ' (Payment Required)'}
+                  {location.disabled && ' - Disabled (Payment Required)'}
                 </option>
               ))}
             </select>
+            {locations.length > 0 && locations.every(loc => loc.disabled) && (
+              <p className="mt-1 text-sm text-amber-600">
+                All locations require payment. Please complete payment to enable location selection.
+              </p>
+            )}
             {errors.locationIndex && (
               <p className="mt-1 text-sm text-red-600">{errors.locationIndex}</p>
             )}
@@ -724,7 +988,17 @@ useEffect(() => {
             <div className="grid grid-cols-2 gap-4">
               <button
                 type="button"
-                onClick={() => setFormData(prev => ({ ...prev, itemType: 'product' }))}
+                onClick={() => {
+                  setFormData(prev => ({ ...prev, itemType: 'product' }));
+                  // Clear service-specific fields when switching to product
+                  setFormData(prev => ({
+                    ...prev,
+                    producer: '',
+                    totalAvailableServiceProviders: 1,
+                    hasSubServices: false,
+                    subServices: []
+                  }));
+                }}
                 className={`flex items-center justify-center gap-2 p-3 border rounded-lg transition-colors ${
                   formData.itemType === 'product'
                     ? 'bg-purple-50 border-purple-500 text-purple-700'
@@ -736,7 +1010,15 @@ useEffect(() => {
               </button>
               <button
                 type="button"
-                onClick={() => setFormData(prev => ({ ...prev, itemType: 'service' }))}
+                onClick={() => {
+                  setFormData(prev => ({ ...prev, itemType: 'service' }));
+                  // Clear product-specific fields when switching to service
+                  setFormData(prev => ({
+                    ...prev,
+                    sku: '',
+                    upc: ''
+                  }));
+                }}
                 className={`flex items-center justify-center gap-2 p-3 border rounded-lg transition-colors ${
                   formData.itemType === 'service'
                     ? 'bg-purple-50 border-purple-500 text-purple-700'
@@ -751,6 +1033,58 @@ useEffect(() => {
               <p className="mt-1 text-sm text-red-600">{errors.itemType}</p>
             )}
           </div>
+
+          {/* SKU and UPC - Only show for products */}
+          {formData.itemType === 'product' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  SKU
+                </label>
+                <input
+                  type="text"
+                  value={formData.sku}
+                  onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Stock Keeping Unit"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  UPC
+                </label>
+                <input
+                  type="text"
+                  value={formData.upc}
+                  onChange={(e) => setFormData(prev => ({ ...prev, upc: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Universal Product Code"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Quantity
+                </label>
+                <input
+                  type="number"
+                  value={formData.totalAvailableQuantity || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, totalAvailableQuantity: e.target.value ? Number(e.target.value) : 0 }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  min="0"
+                  placeholder="0"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Service Provider Fields - Total Service Providers only (Producer removed) */}
+          {formData.itemType === 'service' && (
+            <ServiceFields 
+              formData={formData} 
+              setFormData={setFormData} 
+              errors={errors} 
+            />
+          )}
 
           {/* Description */}
           <div className="mb-6">
@@ -771,171 +1105,19 @@ useEffect(() => {
             )}
           </div>
 
-          {/* Identification Fields */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                SKU
-              </label>
-              <input
-                type="text"
-                value={formData.sku}
-                onChange={(e) => setFormData(prev => ({ ...prev, sku: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                placeholder="Stock Keeping Unit"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                UPC
-              </label>
-              <input
-                type="text"
-                value={formData.upc}
-                onChange={(e) => setFormData(prev => ({ ...prev, upc: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                placeholder="Universal Product Code"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Quantity
-              </label>
-              <input
-                type="number"
-                value={formData.totalAvailableQuantity || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, totalAvailableQuantity: e.target.value ? Number(e.target.value) : 0 }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                min="0"
-                placeholder="0"
-              />
-            </div>
-          </div>
-
+          {/* Identification Fields - Only for products (SKU, UPC, Quantity already moved) */}
           {/* Pricing Information - NGN Currency */}
-          <div className="bg-gray-50 p-4 rounded-lg mb-6">
-            <h3 className="text-lg font-medium text-gray-800 mb-4">Pricing Information (NGN)</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Price (₦) <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">₦</span>
-                  <input
-                    type="number"
-                    value={formData.priceInNaira || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, priceInNaira: e.target.value ? Number(e.target.value) : 0 }))}
-                    className={`w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent ${
-                      errors.priceInNaira ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                    min="0"
-                    step="1"
-                    placeholder="0"
-                  />
-                </div>
-                {errors.priceInNaira && (
-                  <p className="mt-1 text-sm text-red-600">{errors.priceInNaira}</p>
-                )}
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Discount (%)
-                </label>
-                <input
-                  type="number"
-                  value={formData.discountPercentage || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, discountPercentage: e.target.value ? Number(e.target.value) : 0 }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent ${
-                    errors.discountPercentage ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  min="0"
-                  max="100"
-                  placeholder="0"
-                />
-                {errors.discountPercentage && (
-                  <p className="mt-1 text-sm text-red-600">{errors.discountPercentage}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Upfront Payment (%)
-                </label>
-                <input
-                  type="number"
-                  value={formData.upfrontPaymentPercentage || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, upfrontPaymentPercentage: e.target.value ? Number(e.target.value) : 0 }))}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent ${
-                    errors.upfrontPaymentPercentage ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  min="0"
-                  max="100"
-                  placeholder="0 (Optional)"
-                />
-                {errors.upfrontPaymentPercentage && (
-                  <p className="mt-1 text-sm text-red-600">{errors.upfrontPaymentPercentage}</p>
-                )}
-                <p className="text-xs text-gray-500 mt-1">Optional</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Platform Charge
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={loadingCommission ? 'Loading...' : `${formData.platformChargePercentage}%`}
-                    readOnly
-                    className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-700 cursor-not-allowed"
-                  />
-                </div>
-                {platformCommission && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Commission: {platformCommission.commissionName}
-                  </p>
-                )}
-                {!formData.categoryId && (
-                  <p className="text-xs text-amber-600 mt-1">
-                    Select a category to view platform commission
-                  </p>
-                )}
-              </div>
-            </div>
-            
-            {/* Price Calculation Summary - NGN */}
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-3 bg-purple-50 rounded-lg">
-                <span className="text-sm font-medium text-purple-800">Actual Amount:</span>
-                <span className="ml-2 text-lg font-bold text-purple-600">
-                  {formatNaira(calculateActualAmount())}
-                </span>
-              </div>
-              
-              {formData.upfrontPaymentPercentage > 0 && (
-                <>
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <span className="text-sm font-medium text-blue-800">Upfront Payment:</span>
-                    <span className="ml-2 text-lg font-bold text-blue-600">
-                      {formatNaira(totalCalculation.upfront)}
-                    </span>
-                    <span className="ml-1 text-xs text-blue-600">
-                      ({formData.upfrontPaymentPercentage}%)
-                    </span>
-                  </div>
-                  
-                  <div className="p-3 bg-green-50 rounded-lg">
-                    <span className="text-sm font-medium text-green-800">Remaining:</span>
-                    <span className="ml-2 text-lg font-bold text-green-600">
-                      {formatNaira(totalCalculation.remaining)}
-                    </span>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+          <PricingSection 
+            formData={formData} 
+            setFormData={setFormData} 
+            errors={errors} 
+            commissionLoading={commissionLoading} 
+            commissionError={commissionError} 
+            platformCommission={platformCommission} 
+            calculateActualAmount={calculateActualAmount} 
+            calculateTotalWithUpfront={calculateTotalWithUpfront} 
+            formatNaira={formatNaira} 
+          />
 
           {/* Date and Time - Empty by default */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -1025,119 +1207,19 @@ useEffect(() => {
             />
           </div>
 
-          {/* Media Limits Info */}
-          {mediaLimits && (
-            <div className="mb-4 p-3 bg-blue-50 rounded-lg flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-blue-800">
-                <p className="font-medium">Media Limits</p>
-                <p>Images: {mediaLimits.images.current}/{mediaLimits.images.max} used ({mediaLimits.images.remaining} remaining)</p>
-                <p>Videos: {mediaLimits.videos.current}/{mediaLimits.videos.max} used ({mediaLimits.videos.remaining} remaining)</p>
-                {!mediaLimits.verified && (
-                  <p className="text-xs mt-1">Upgrade to verified badge for more upload slots.</p>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Media Upload */}
-          <div className="bg-gray-50 p-4 rounded-lg mb-6">
-            <h3 className="text-lg font-medium text-gray-800 mb-4">Media Upload</h3>
-            
-            {/* Image Upload */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Images (Max 5MB each, JPEG/PNG/WebP)
-              </label>
-              <div className="flex items-center gap-2">
-                <label className="flex-1 flex items-center justify-center px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 transition-colors">
-                  <Upload className="w-5 h-5 text-gray-400 mr-2" />
-                  <span className="text-gray-600">Upload Images</span>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              {errors.images && (
-                <p className="mt-1 text-sm text-red-600">{errors.images}</p>
-              )}
-              
-              {/* Image Preview */}
-              {images.length > 0 && (
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {images.map((image, index) => (
-                    <div key={index} className="relative">
-                      <img
-                        src={URL.createObjectURL(image)}
-                        alt={`Preview ${index + 1}`}
-                        className="w-full h-24 object-cover rounded"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeImage(index)}
-                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+          <MediaUpload 
+            images={images} 
+            videos={videos} 
+            handleImageUpload={handleImageUpload} 
+            handleVideoUpload={handleVideoUpload} 
+            removeImage={removeImage} 
+            removeVideo={removeVideo} 
+            errors={errors} 
+            mediaLimits={mediaLimits} 
+          />
 
-            {/* Video Upload */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Videos (Max 50MB each, MP4/MPEG/MOV/AVI)
-              </label>
-              <div className="flex items-center gap-2">
-                <label className="flex-1 flex items-center justify-center px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 transition-colors">
-                  <Video className="w-5 h-5 text-gray-400 mr-2" />
-                  <span className="text-gray-600">Upload Videos</span>
-                  <input
-                    type="file"
-                    multiple
-                    accept="video/mp4,video/mpeg,video/quicktime,video/x-msvideo"
-                    onChange={handleVideoUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              {errors.videos && (
-                <p className="mt-1 text-sm text-red-600">{errors.videos}</p>
-              )}
-              
-              {/* Video List */}
-              {videos.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  {videos.map((video, index) => (
-                    <div key={index} className="flex items-center justify-between bg-white p-2 rounded border">
-                      <div className="flex items-center">
-                        <Video className="w-5 h-5 text-red-500 mr-2" />
-                        <span className="text-sm text-gray-700">{video.name}</span>
-                        <span className="text-xs text-gray-500 ml-2">
-                          ({(video.size / (1024 * 1024)).toFixed(1)} MB)
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeVideo(index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Action Buttons */}
+      
           <div className="flex justify-end gap-3">
             <button
               type="button"

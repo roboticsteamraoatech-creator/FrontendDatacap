@@ -5,6 +5,47 @@ import { routes } from './apiRoutes';
 
 console.log('GalleryService: Imported routes object:', routes);
 
+// Service-specific interfaces
+interface SubService {
+  name: string;
+  description: string;
+  price: number;
+}
+
+interface TimeWindow {
+  startTime: string;
+  endTime: string;
+}
+
+interface DayAvailability {
+  dayOfWeek: number;
+  isAvailable: boolean;
+  timeWindows: TimeWindow[];
+}
+
+interface AvailabilityPeriod {
+  type: 'unlimited' | 'dateRange' | 'rollingWeeks';
+  startDate?: string;
+  endDate?: string;
+  weeksAhead?: number;
+}
+
+interface BookingAvailability {
+  daysAvailable: DayAvailability[];
+  slotDurationMinutes: number;
+  concurrentProviders: number;
+  availabilityPeriod: AvailabilityPeriod;
+  timezone: string;
+}
+
+interface Availability {
+  type: 'unlimited' | 'dateRange';
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+}
+
 // Updated interface with all required fields
 interface GalleryItemCreateData {
    name: string; 
@@ -30,6 +71,14 @@ interface GalleryItemCreateData {
   visibilityToPublic?: boolean;
   notes?: string;
   locationIndex?: number;
+  // Service-specific fields
+  producer?: string;
+  totalAvailableServiceProviders?: number;
+  hasSubServices?: boolean;
+  subServiceCount?: number;
+  subServices?: SubService[];
+  availability?: Availability;
+  bookingAvailability?: BookingAvailability;
 }
 
 interface LocationUsage {
@@ -79,6 +128,14 @@ interface GalleryItemUpdateData {
   visibilityToPublic?: boolean;
   notes?: string;
   locationIndex?: number;
+  // Service-specific fields
+  producer?: string;
+  totalAvailableServiceProviders?: number;
+  hasSubServices?: boolean;
+  subServiceCount?: number;
+  subServices?: SubService[];
+  availability?: Availability;
+  bookingAvailability?: BookingAvailability;
 }
 
 interface GalleryItem {
@@ -110,6 +167,14 @@ interface GalleryItem {
   videos: string[];
   createdAt: string;
   updatedAt: string;
+  // Service-specific fields
+  producer?: string;
+  totalAvailableServiceProviders?: number;
+  hasSubServices?: boolean;
+  subServiceCount?: number;
+  subServices?: SubService[];
+  availability?: Availability;
+  bookingAvailability?: BookingAvailability;
 }
 
 interface Category {
@@ -160,10 +225,11 @@ export class GalleryService {
   }
 
   // Create a new gallery item
-  static async createGalleryItem(token: string, data: GalleryItemCreateData): Promise<{ success: boolean; data?: GalleryItem; message?: string }> {
+  static async createGalleryItem(token: string, data: GalleryItemCreateData): Promise<{ success: boolean; data?: { galleryItem: GalleryItem }; message?: string }> {
     try {
-      console.log('GalleryService: Creating gallery item with data:', data);
+      console.log('GalleryService: Creating gallery item with data:', JSON.stringify(data, null, 2));
       const fullUrl = `${process.env.NEXT_PUBLIC_BACKEND_API || 'https://datacapture-backend.onrender.com'}${routes.gallery.base}`;
+      console.log('GalleryService: POST request to:', fullUrl);
       const response = await fetch(fullUrl, {
         method: 'POST',
         headers: this.getHeaders(token),
@@ -182,7 +248,7 @@ export class GalleryService {
       }
 
       const result = await response.json();
-      console.log('GalleryService: Create result:', result);
+      console.log('GalleryService: Create result:', JSON.stringify(result, null, 2));
       return result;
     } catch (error) {
       console.error('Error creating gallery item:', error);
@@ -356,12 +422,15 @@ export class GalleryService {
   static async uploadImage(
     token: string, 
     itemId: string, 
-    imageFile: File
+    imageFile: File,
+    isMainImage: boolean = false
   ): Promise<{ success: boolean; data?: { imageUrl: string }; message?: string }> {
     try {
-      console.log('GalleryService: Uploading image for item', itemId, 'file:', imageFile.name);
+      console.log('GalleryService: Uploading image for item', itemId, 'file:', imageFile.name, 'isMain:', isMainImage);
       const formData = new FormData();
       formData.append('image', imageFile);
+      // Note: Backend automatically sets first uploaded image as main image
+      // isMain flag is logged but not sent to match API spec
 
       const fullUrl = `${process.env.NEXT_PUBLIC_BACKEND_API || 'https://datacapture-backend.onrender.com'}${routes.gallery.uploadImage(itemId)}`;
       const response = await fetch(fullUrl, {
@@ -387,6 +456,8 @@ export class GalleryService {
     }
   }
 
+
+  
   // Upload video to gallery item
   static async uploadVideo(
     token: string, 
@@ -469,28 +540,28 @@ static async getCategoriesByIndustry(token: string, industryId: string): Promise
    * Get platform commission for a category
    * GET /api/super-admin/platform-commissions/category/{categoryId}
    */
-  static async getPlatformCommissionByCategory(token: string, categoryId: string): Promise<{ success: boolean; data?: { commission: PlatformCommission }; message?: string }> {
-    try {
-      console.log('GalleryService: Fetching platform commission for category:', categoryId);
-      const url = `${process.env.NEXT_PUBLIC_BACKEND_API || 'https://datacapture-backend.onrender.com'}/api/super-admin/platform-commissions/category/${categoryId}`;
-      const response = await fetch(url, {
-        headers: this.getHeaders(token)
-      });
+static async getPlatformCommissionByCategory(token: string, categoryId: string): Promise<{ success: boolean; data?: { commission: PlatformCommission }; message?: string }> {
+  try {
+    console.log('GalleryService: Fetching platform commission for category:', categoryId);
+    const url = `${process.env.NEXT_PUBLIC_BACKEND_API || 'https://datacapture-backend.onrender.com'}/api/super-admin/platform-commissions/category/${categoryId}`;
+    const response = await fetch(url, {
+      headers: this.getHeaders(token)
+    });
 
-      console.log('GalleryService: Platform commission response status:', response.status);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      console.log('GalleryService: Platform commission result:', result);
-      return result;
-    } catch (error) {
-      console.error('Error fetching platform commission:', error);
-      return { success: false, message: 'Failed to fetch platform commission' };
+    console.log('GalleryService: Platform commission response status:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
+
+    const result = await response.json();
+    console.log('GalleryService: Platform commission result:', result);
+    return result;
+  } catch (error) {
+    console.error('Error fetching platform commission:', error);
+    return { success: false, message: 'Failed to fetch platform commission' };
   }
+}
 
  
   static async getPlatformCodePreview(token: string): Promise<{ success: boolean; data?: PlatformCodePreview; message?: string }> {
@@ -518,12 +589,12 @@ static async getCategoriesByIndustry(token: string, industryId: string): Promise
 
   /**
    * Get industries for dropdown
-   * GET /api/admin/gallery/industries
+   * GET /api/auth/industries
    */
   static async getIndustries(token: string): Promise<{ success: boolean; data?: { industries: Array<{ id: string; name: string }> }; message?: string }> {
     try {
       console.log('GalleryService: Fetching industries');
-      const url = `${process.env.NEXT_PUBLIC_BACKEND_API || 'https://datacapture-backend.onrender.com'}/api/admin/gallery/industries`;
+      const url = `${process.env.NEXT_PUBLIC_BACKEND_API || 'https://datacapture-backend.onrender.com'}/api/auth/industries`;
       const response = await fetch(url, {
         headers: this.getHeaders(token)
       });
@@ -598,6 +669,29 @@ static async getLocationsForSelect(token: string): Promise<Array<{
   }
 }
 
+
+static async getCommissionByCategory(token: string, categoryId: string): Promise<{ success: boolean; data?: { commission: PlatformCommission }; message?: string }> {
+  try {
+    console.log('GalleryService: Fetching commission for category via admin endpoint:', categoryId);
+    const url = `${process.env.NEXT_PUBLIC_BACKEND_API || 'https://datacapture-backend.onrender.com'}/api/admin/gallery/commission/${categoryId}`;
+    const response = await fetch(url, {
+      headers: this.getHeaders(token)
+    });
+
+    console.log('GalleryService: Commission response status:', response.status);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('GalleryService: Commission result:', result);
+    return result;
+  } catch (error) {
+    console.error('Error fetching commission:', error);
+    return { success: false, message: 'Failed to fetch commission' };
+  }
+}
   // Get media usage statistics
   static async getMediaUsage(token: string): Promise<{ success: boolean; data?: MediaUsage; message?: string }> {
     try {

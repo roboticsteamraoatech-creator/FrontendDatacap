@@ -92,50 +92,47 @@ export default function LoginPage() {
       } else if (data && data.jwtToken && data.user) {
         signIn(data.jwtToken, data.user)
         
-        try {
-          // Check subscription status for ALL users (not just admins)
-          const subscriptionResponse = await UserSubscriptionService.getUserSubscriptionStatus(data.user.id);
-          
-          // Route based SOLELY on API response
-          if (subscriptionResponse.data.redirectTo === 'subscription') {
-            toast({ 
-              title: "SUBSCRIPTION NEEDED",
-              description: "Please select a subscription package to continue"
-            });
-            router.replace("/subscription");
-          } else if (subscriptionResponse.data.redirectTo === 'dashboard') {
-            toast({ 
-              title: "LOGIN SUCCESSFUL!",
-              description: "Welcome back! Redirecting to dashboard..."
-            });
+        const userRole = data.user.role?.toLowerCase();
+        
+        // Check subscription status ONLY for admin/organization users
+        if (userRole === 'admin' || userRole === 'organisation' || userRole === 'organization') {
+          try {
+            const subscriptionResponse = await UserSubscriptionService.getUserSubscriptionStatus(data.user.id);
             
-            // Determine dashboard based on user role
-            const userRole = data.user.role?.toLowerCase();
-            if (userRole === 'super_admin') {
-              router.replace("/super-admin");
-            } else if (userRole === 'admin' || userRole === 'organisation' || userRole === 'organization') {
+            // subscriptionResponse is the full API response: { success, data, message }
+            // subscriptionResponse.data contains: { hasActiveSubscription, shouldShowSubscription, subscription }
+            const hasActiveSubscription = subscriptionResponse.data.hasActiveSubscription;
+            
+            // Route based on subscription status from API response
+            if (hasActiveSubscription) {
+              // User has active subscription - redirect to admin dashboard
+              toast({ 
+                title: "LOGIN SUCCESSFUL!",
+                description: "Welcome back! Redirecting to dashboard..."
+              });
               router.replace("/admin");
             } else {
-              router.replace("/user");
+              // No active subscription - redirect to subscription page
+              toast({ 
+                title: "SUBSCRIPTION NEEDED",
+                description: "Please select a subscription package to continue"
+              });
+              router.replace("/subscription");
             }
-          } else {
-            // Fallback - use role-based routing
-            const userRole = data.user.role?.toLowerCase();
-            if (userRole === 'super_admin') {
-              router.replace("/super-admin");
-            } else if (userRole === 'admin' || userRole === 'organisation' || userRole === 'organization') {
-              router.replace("/admin");
-            } else {
-              router.replace("/user");
-            }
+          } catch (subscriptionError: any) {
+            // Fallback: redirect to admin dashboard when subscription check fails
+            console.error('Subscription check failed, redirecting to admin:', subscriptionError);
+            router.replace("/admin");
           }
-        } catch (subscriptionError: any) {
-          // Fallback: redirect based on role when subscription check fails
-          const userRole = data.user.role?.toLowerCase();
+        } else {
+          // Non-admin users - route based on role without subscription check
+          toast({ 
+            title: "LOGIN SUCCESSFUL!",
+            description: "Welcome back! Redirecting to dashboard..."
+          });
+          
           if (userRole === 'super_admin') {
             router.replace("/super-admin");
-          } else if (userRole === 'admin' || userRole === 'organisation' || userRole === 'organization') {
-            router.replace("/subscription"); // Default to subscription for org users
           } else {
             router.replace("/user");
           }
@@ -363,9 +360,9 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="mb-8">
           <Image 
-            width={40} 
-            height={35} 
-            src="/Group 1.png" 
+            width={100} 
+            height={80} 
+            src="/assets/vetra.png" 
             alt="Company Logo" 
             className="object-contain" 
           />
@@ -516,9 +513,9 @@ export default function LoginPage() {
         }}
       >
         <Image 
-          width={55} 
-          height={48} 
-          src="/Group 1.png" 
+          width={100} 
+          height={80} 
+          src="/assets/vetra.png" 
           alt="Company Logo" 
           className="object-contain" 
         />

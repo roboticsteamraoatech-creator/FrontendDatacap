@@ -47,9 +47,24 @@ const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({ children }) => {
           );
 
           if (response.data.success) {
+            // Log the actual API response for debugging
+            console.log('🔍 SubscriptionGuard API Response:', response.data.data);
+            console.log('  - redirectTo:', response.data.data.redirectTo);
+            console.log('  - shouldShowSubscription:', response.data.data.shouldShowSubscription);
+            console.log('  - hasActiveSubscription:', response.data.data.hasActiveSubscription);
+            
             // Use the redirectTo field to determine access
             const shouldShowSubscription = response.data.data.shouldShowSubscription;
-            setHasActiveSubscription(!shouldShowSubscription);
+            const hasActiveSubFromAPI = response.data.data.hasActiveSubscription;
+            
+            // Prefer hasActiveSubscription if available, otherwise calculate from shouldShowSubscription
+            if (typeof hasActiveSubFromAPI === 'boolean') {
+              console.log('✅ Using hasActiveSubscription from API:', hasActiveSubFromAPI);
+              setHasActiveSubscription(hasActiveSubFromAPI);
+            } else {
+              console.log('⚠️ Calculating from shouldShowSubscription:', !shouldShowSubscription);
+              setHasActiveSubscription(!shouldShowSubscription);
+            }
           } else {
             // Fallback to mock service
             setHasActiveSubscription(mockSubscriptionService.hasActiveSubscription(user.id));
@@ -85,16 +100,14 @@ const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({ children }) => {
     return <>{children}</>;
   }
 
-  // If user doesn't have active subscription, redirect to subscription page
-  if (token && user && !hasActiveSubscription) {
-    const userRole = user.role?.toLowerCase();
-    if (userRole === 'organisation' || userRole === 'organization' || userRole === 'admin') {
-      router.replace('/subscription');
-      return null;
-    }
-  }
-
-  // For other cases, show children (unprotected routes)
+  // IMPORTANT: Do NOT redirect to /subscription page during render
+  // Calling router.replace() here causes React error:
+  // "Cannot update a component while rendering a different component"
+  // 
+  // Subscription check happens ONLY at login time.
+  // This guard simply controls access without redirecting.
+  
+  // For all cases, show children
   return <>{children}</>;
 };
 

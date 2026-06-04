@@ -146,10 +146,15 @@ class LocationPaymentService {
   async verifyPayment(request: VerifyPaymentRequest): Promise<VerifyPaymentResponse> {
     try {
       const url = '/api/payment/verified-badge/verify';
-      const response = await this.httpService.postData<VerifyPaymentResponse>(request, url);
+      const payload = { tx_ref: request.transactionId };
+      
+      const response = await this.httpService.postData<VerifyPaymentResponse>(
+        payload,
+        url
+      );
+      
       return response;
-    } catch (error) {
-      console.error('Error verifying payment:', error);
+    } catch (error: any) {
       throw error;
     }
   }

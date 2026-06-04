@@ -14,8 +14,10 @@ const PaymentVerificationClient = () => {
   useEffect(() => {
     const verifyPayment = async () => {
       try {
-        const transactionId = searchParams.get('transaction_id');
+        const transactionId = searchParams.get('tx_ref') || searchParams.get('transaction_id');
         const paymentStatus = searchParams.get('status');
+
+
 
         if (!transactionId) {
           setStatus('error');
@@ -23,13 +25,15 @@ const PaymentVerificationClient = () => {
           return;
         }
 
-        if (paymentStatus !== 'successful') {
+        if (paymentStatus !== 'successful' && paymentStatus !== 'success') {
           setStatus('error');
           setMessage('Payment was not successful');
           return;
         }
 
-        // Verify payment with backend
+
+
+        // Verify subscription payment with backend
         const response = await PaymentService.verifyPayment({
           transactionId
         });
@@ -38,18 +42,32 @@ const PaymentVerificationClient = () => {
           setStatus('success');
           setMessage('Payment verified successfully! Subscription activated.');
           
-          // Redirect to admin page after delay
+          // Redirect based on user type
           setTimeout(() => {
-            router.push('/admin');
+            const userType = searchParams.get('userType') || 'organization';
+            if (userType === 'individual') {
+              router.push('/user');
+            } else {
+              router.push('/admin');
+            }
           }, 3000);
         } else {
           setStatus('error');
           setMessage(response.message || 'Payment verification failed');
         }
       } catch (error) {
-        console.error('Error verifying payment:', error);
         setStatus('error');
-        setMessage('An error occurred while verifying payment');
+        
+        // Check if it's an authentication error
+        if (error instanceof Error && error.message.includes('Authentication')) {
+          setMessage('Please log in to verify your payment. Redirecting to login...');
+          setTimeout(() => {
+            localStorage.setItem('redirectAfterLogin', window.location.href);
+            router.push('/auth/login');
+          }, 2000);
+        } else {
+          setMessage('An error occurred while verifying payment');
+        }
       }
     };
 
@@ -90,10 +108,10 @@ const PaymentVerificationClient = () => {
               <h2 className="mt-4 text-xl font-bold text-gray-900">Verification Failed</h2>
               <p className="mt-2 text-gray-600">{message}</p>
               <button
-                onClick={() => router.push('/subscription')}
+                onClick={() => router.push('/admin')}
                 className="mt-4 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
               >
-                Try Again
+                Go to Dashboard
               </button>
             </>
           )}
