@@ -55,10 +55,10 @@ const ProductCard = ({ product, onViewDetails, formatCurrency }: ProductCardProp
         <div className="mb-3">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm text-gray-400 line-through">
-              {formatCurrency(product.originalPrice)}
+              {formatCurrency(product.originalPrice + product.platformChargeAmount)}
             </span>
             <span className="text-lg font-bold text-[#5d2a8b]">
-              {formatCurrency(product.discountedPrice)}
+              {formatCurrency(product.finalPrice)}
             </span>
           </div>
           <div className="flex items-center justify-between">

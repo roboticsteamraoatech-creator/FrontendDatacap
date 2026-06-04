@@ -20,18 +20,24 @@ export interface PublicProduct {
   name: string;
   title: string;
   itemType: 'product' | 'service';
+  organizationId: string; // Added from JSON
   categoryName: string;
-  industryName: string;
+  industryName?: string| undefined; // Made optional as it's missing in JSON
   originalPrice: number;
-  discountedPrice: number;
+  priceAfterDiscount: number; // Added from JSON
+  discountedPrice: number; 
   discount: number;
+  discountAmount: number; // Added from JSON
+  platformChargeAmount: number; // Added from JSON
+  platformChargePercentage: number; // Added from JSON
+  finalPrice: number; // Added from JSON
   youSave: number;
   availableQuantity: number;
   sku: string;
   upc: string;
   platformUniqueCode: string;
   imageUrl: string | null;
-  videoUrl: string | null;
+  videoUrl?: string | null; // Made optional as it's missing in JSON
   location: {
     brandName: string;
     address: string;
@@ -42,7 +48,7 @@ export interface PublicProduct {
   } | null;
   businessName: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string; // Made optional as it's missing in JSON
 }
 
 export interface PublicProductDetails {

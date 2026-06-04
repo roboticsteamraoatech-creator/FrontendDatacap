@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -12,10 +11,10 @@ import ProductDetailsView from '@/modules/user/body-care/ProductDetailsView';
 import SubServiceView from '@/modules/user/body-care/SubServiceView';
 import ProductCard from '@/modules/user/body-care/ProductCard';
 
-
 const BodyCarePage = () => {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
+  const [platformCodeTerm, setPlatformCodeTerm] = useState(''); // Separate tracking for code submissions
   const [selectedCategoryName, setSelectedCategoryName] = useState('');
   const [selectedCity, setSelectedCity] = useState('');
   const [selectedState, setSelectedState] = useState('');
@@ -48,11 +47,19 @@ const BodyCarePage = () => {
     productCount: number; 
   }>>([]);
 
-  // Fetch products on mount and when filters change
+  // Fetch products on mount and when base filters change
   useEffect(() => {
     fetchProducts();
     fetchAllCategories();
   }, [pagination.page, itemType]);
+
+  // AUTOMATIC REVERT EFFECT: Instantly restores full catalog when name search or code search is empty
+  useEffect(() => {
+    if (searchTerm.trim() === '' && platformCodeTerm.trim() === '') {
+      setPagination(prev => ({ ...prev, page: 1 }));
+      fetchProducts();
+    }
+  }, [searchTerm, platformCodeTerm]);
 
   // Extract filter options when products change
   useEffect(() => {
@@ -63,13 +70,18 @@ const BodyCarePage = () => {
     }
   }, [products]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (forcedSearchOverride?: string) => {
     setLoading(true);
     setError(null);
     
+    // Use explicit code value if passed directly, otherwise fall back to regular search text
+    const activeSearchQuery = forcedSearchOverride !== undefined 
+      ? forcedSearchOverride 
+      : (platformCodeTerm || searchTerm || undefined);
+
     try {
       const response = await PublicProductService.searchProducts({
-        search: searchTerm || undefined,
+        search: activeSearchQuery,
         categoryName: selectedCategoryName || undefined,
         city: selectedCity || undefined,
         state: selectedState || undefined,
@@ -83,7 +95,7 @@ const BodyCarePage = () => {
       });
       
       if (response.success) {
-        setProducts(response.data.items);
+        setProducts(response.data.items as PublicProduct[]);
         setPagination({
           ...pagination,
           total: response.data.pagination.total,
@@ -102,10 +114,25 @@ const BodyCarePage = () => {
     }
   };
 
-  const handleSearch = (e: React.FormEvent) => {
+  // Handles text-based filter form requests
+  const handleFilterSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setPlatformCodeTerm(''); // Clear code searches to avoid conflicts
     setPagination({ ...pagination, page: 1 });
     fetchProducts();
+  };
+
+  // Handles platform code submissions to stream directly into the grid results loader
+  const handleGridCodeSearch = (code: string) => {
+    const cleanCode = code.trim();
+    if (!cleanCode) return;
+    
+    setSearchTerm(''); // Clear text search to handle code matching exclusively
+    setPlatformCodeTerm(cleanCode);
+    setPagination({ ...pagination, page: 1 });
+    
+    // Directly pass query through parameters list to guarantee instant render execution
+    fetchProducts(cleanCode);
   };
 
   const fetchAllCategories = async () => {
@@ -119,26 +146,6 @@ const BodyCarePage = () => {
     }
   };
 
-  const handleSearchByCode = async (platformCode: string) => {
-    try {
-      setLoadingDetails(true);
-      setError(null);
-      const response = await PublicProductService.getProductByCode(platformCode);
-      
-      if (response.success) {
-        setSelectedProduct(response.data as ExtendedPublicProductDetails);
-        setSelectedSubService(null);
-      } else {
-        setError(response.message || 'Product not found with this platform code');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch product by code');
-      console.error('Error fetching product by code:', err);
-    } finally {
-      setLoadingDetails(false);
-    }
-  };
-
   const handleViewDetails = async (product: PublicProduct) => {
     try {
       setLoadingDetails(true);
@@ -146,6 +153,8 @@ const BodyCarePage = () => {
       const response = await PublicProductService.getProductDetails(product.id);
       
       if (response.success) {
+        // console.log("product", product)
+        // console.log("response", response.data)
         setSelectedProduct(response.data as ExtendedPublicProductDetails);
         setSelectedSubService(null);
       } else {
@@ -183,7 +192,7 @@ const BodyCarePage = () => {
       organizationId: product.product.organizationId,
       organizationName: product.serviceProvider.producer,
       upfrontPercentage: product.product.pricing.upfrontPaymentPercentage || 10,
-      itemType: 'service',
+      itemType: 'service' as const,
       isSubService: true,
       timestamp: Date.now(),
       bookingLocation: { type: "merchant_location" }
@@ -195,12 +204,13 @@ const BodyCarePage = () => {
       organizationId: product.product.organizationId,
       organizationName: product.serviceProvider.producer,
       upfrontPercentage: product.product.pricing.upfrontPaymentPercentage || 10,
-      itemType: product.product.itemType,
+      itemType: product.product.itemType as "product" | "service",
       timestamp: Date.now(),
       bookingLocation: { type: "merchant_location" }
     };
     
-    localStorage.setItem('selectedProduct', JSON.stringify(paymentData));
+    // localStorage.setItem('selectedProduct', JSON.stringify(paymentData));
+    localStorage.setItem('selectedProduct', JSON.stringify(product));
     router.push('/user/payment');
   };
 
@@ -212,11 +222,7 @@ const BodyCarePage = () => {
     
     localStorage.setItem('appointmentProduct', JSON.stringify(appointmentData));
     
-    // Pass organizationId and serviceId as URL params
-    // Strip platform unique code suffix if present (e.g. "ORG123-009-048" → "ORG123")
     const organizationId = (product.product.organizationId || "").replace(/-\d{3}-\d{3}$/, "");
-    // Use parent service ID for availability endpoints.
-    // Sub-service ID is only used in payment payload and /sub-services fetch.
     const serviceId = product.product.id;
     
     router.push(`/user/book-appointment?organizationId=${organizationId}&serviceId=${serviceId}`);
@@ -224,6 +230,7 @@ const BodyCarePage = () => {
 
   const clearFilters = () => {
     setSearchTerm('');
+    setPlatformCodeTerm('');
     setSelectedCategoryName('');
     setSelectedCity('');
     setSelectedState('');
@@ -232,12 +239,11 @@ const BodyCarePage = () => {
     setSortBy('createdAt');
     setSortOrder('desc');
     setPagination({ ...pagination, page: 1 });
-    fetchProducts();
+    fetchProducts('');
   };
 
   const formatCurrency = PublicProductService.formatNaira;
 
-  // Render appropriate view based on state
   if (selectedSubService && selectedProduct) {
     return (
       <SubServiceView
@@ -265,7 +271,6 @@ const BodyCarePage = () => {
     );
   }
 
-  // Main listing view
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="ml-0 md:ml-[350px] pt-8 md:pt-8 p-4 md:p-8">
@@ -273,7 +278,7 @@ const BodyCarePage = () => {
           {/* Header */}
           <div className="mb-8 text-center">
             <h1 className="text-4xl font-bold text-gray-900 mb-3">
-              <span className="text-[#5d2a8b]">Verified</span> Body Care Products & Services
+              <span className="text-[#5d2a8b]">Verified</span> Products & Services
             </h1>
             <p className="text-gray-600 text-lg">Discover quality services and products from verified providers</p>
             
@@ -281,27 +286,25 @@ const BodyCarePage = () => {
             <div className="mt-6 flex justify-center">
               <div className="inline-flex rounded-lg border border-[#5d2a8b] p-1">
                 <button
+                  type="button"
                   onClick={() => {
                     setItemType('product');
                     setPagination({ ...pagination, page: 1 });
                   }}
                   className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
-                    itemType === 'product'
-                      ? 'bg-[#5d2a8b] text-white'
-                      : 'text-[#5d2a8b] hover:bg-[#5d2a8b]/10'
+                    itemType === 'product' ? 'bg-[#5d2a8b] text-white' : 'text-[#5d2a8b] hover:bg-[#5d2a8b]/10'
                   }`}
                 >
                   Products
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setItemType('service');
                     setPagination({ ...pagination, page: 1 });
                   }}
                   className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
-                    itemType === 'service'
-                      ? 'bg-[#5d2a8b] text-white'
-                      : 'text-[#5d2a8b] hover:bg-[#5d2a8b]/10'
+                    itemType === 'service' ? 'bg-[#5d2a8b] text-white' : 'text-[#5d2a8b] hover:bg-[#5d2a8b]/10'
                   }`}
                 >
                   Services
@@ -310,19 +313,22 @@ const BodyCarePage = () => {
             </div>
           </div>
 
-          {/* Quick Platform Code Search */}
+          {/* Quick Platform Code Search (Updated to route directly into grid query array updates) */}
           <div className="bg-white rounded-xl shadow-sm p-6 mb-6 border-2 border-[#5d2a8b]">
             <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
-              Quick Search by Platform Code
+              {/* Quick Search by Platform Code */}
+              Quick Search by Product Code
             </h3>
             <div className="flex gap-3">
               <input
                 type="text"
-                placeholder="Enter platform unique code (e.g., ORG1766704354663-008-016)"
+                value={platformCodeTerm}
+                onChange={(e) => setPlatformCodeTerm(e.target.value)}
+                placeholder="Enter product unique code (e.g., ORG1766704354663-008-016)"
                 className="flex-1 px-4 py-3 border-2 border-[#5d2a8b] rounded-lg focus:ring-2 focus:ring-[#5d2a8b] focus:border-[#5d2a8b]"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                    handleSearchByCode(e.currentTarget.value.trim());
+                  if (e.key === 'Enter') {
+                    handleGridCodeSearch(e.currentTarget.value);
                   }
                 }}
               />
@@ -330,9 +336,7 @@ const BodyCarePage = () => {
                 type="button"
                 onClick={(e) => {
                   const input = e.currentTarget.parentElement?.querySelector('input');
-                  if (input && input.value.trim()) {
-                    handleSearchByCode(input.value.trim());
-                  }
+                  if (input) handleGridCodeSearch(input.value);
                 }}
                 className="px-6 py-3 bg-[#5d2a8b] text-white rounded-lg hover:bg-[#7a3aa3] transition-colors font-semibold flex items-center"
               >
@@ -342,13 +346,13 @@ const BodyCarePage = () => {
             </div>
           </div>
 
-          {/* Search and Filters */}
-          <form onSubmit={handleSearch} className="bg-white rounded-xl shadow-sm p-6 mb-8 border-2 border-[#5d2a8b]">
+          {/* Search and Filters Form */}
+          <form onSubmit={handleFilterSubmit} className="bg-white rounded-xl shadow-sm p-6 mb-8 border-2 border-[#5d2a8b]">
             <div className="relative mb-4">
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-[#5d2a8b] w-6 h-6" />
               <input
                 type="text"
-                placeholder="Search by name, platform code, SKU, UPC, or description..."
+                placeholder="Search by name..."
                 className="w-full pl-14 pr-4 py-4 text-lg border-2 border-[#5d2a8b] rounded-lg focus:ring-2 focus:ring-[#5d2a8b] focus:border-[#5d2a8b]"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -460,8 +464,7 @@ const BodyCarePage = () => {
                 type="submit"
                 className="flex-1 bg-[#5d2a8b] text-white py-3 rounded-lg hover:bg-[#7a3aa3] transition-colors font-semibold flex items-center justify-center"
               >
-                <Search className="w-5 h-5 mr-2" />
-                Search
+                Apply Filters
               </button>
               <button 
                 type="button"
@@ -521,9 +524,7 @@ const BodyCarePage = () => {
                     onClick={() => setPagination({ ...pagination, page: pagination.page - 1 })}
                     disabled={pagination.page === 1}
                     className={`px-4 py-2 border rounded-lg ${
-                      pagination.page === 1
-                        ? 'border-gray-200 text-gray-400 cursor-not-allowed'
-                        : 'border-[#5d2a8b] text-[#5d2a8b] hover:bg-[#5d2a8b] hover:text-white'
+                      pagination.page === 1 ? 'border-gray-200 text-gray-400 cursor-not-allowed' : 'border-[#5d2a8b] text-[#5d2a8b] hover:bg-[#5d2a8b] hover:text-white'
                     } transition-colors`}
                   >
                     Previous
@@ -531,24 +532,17 @@ const BodyCarePage = () => {
                   
                   {Array.from({ length: Math.min(pagination.totalPages, 5) }, (_, i) => {
                     let pageNum = pagination.page;
-                    if (pagination.totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (pagination.page <= 3) {
-                      pageNum = i + 1;
-                    } else if (pagination.page >= pagination.totalPages - 2) {
-                      pageNum = pagination.totalPages - 4 + i;
-                    } else {
-                      pageNum = pagination.page - 2 + i;
-                    }
+                    if (pagination.totalPages <= 5) pageNum = i + 1;
+                    else if (pagination.page <= 3) pageNum = i + 1;
+                    else if (pagination.page >= pagination.totalPages - 2) pageNum = pagination.totalPages - 4 + i;
+                    else pageNum = pagination.page - 2 + i;
                     
                     return (
                       <button
                         key={pageNum}
                         onClick={() => setPagination({ ...pagination, page: pageNum })}
                         className={`px-4 py-2 border rounded-lg ${
-                          pagination.page === pageNum
-                            ? 'bg-[#5d2a8b] text-white border-[#5d2a8b]'
-                            : 'border-[#5d2a8b] text-[#5d2a8b] hover:bg-[#5d2a8b] hover:text-white'
+                          pagination.page === pageNum ? 'bg-[#5d2a8b] text-white border-[#5d2a8b]' : 'border-[#5d2a8b] text-[#5d2a8b] hover:bg-[#5d2a8b] hover:text-white'
                         } transition-colors`}
                       >
                         {pageNum}
@@ -560,9 +554,7 @@ const BodyCarePage = () => {
                     onClick={() => setPagination({ ...pagination, page: pagination.page + 1 })}
                     disabled={pagination.page === pagination.totalPages}
                     className={`px-4 py-2 border rounded-lg ${
-                      pagination.page === pagination.totalPages
-                        ? 'border-gray-200 text-gray-400 cursor-not-allowed'
-                        : 'border-[#5d2a8b] text-[#5d2a8b] hover:bg-[#5d2a8b] hover:text-white'
+                      pagination.page === pagination.totalPages ? 'border-gray-200 text-gray-400 cursor-not-allowed' : 'border-[#5d2a8b] text-[#5d2a8b] hover:bg-[#5d2a8b] hover:text-white'
                     } transition-colors`}
                   >
                     Next

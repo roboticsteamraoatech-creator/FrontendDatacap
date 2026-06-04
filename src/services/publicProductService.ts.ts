@@ -21,18 +21,24 @@ export interface PublicProduct {
   name: string;
   title: string;
   itemType: 'product' | 'service';
+  organizationId: string; // Added from updated schema
   categoryName: string;
-  industryName: string;
+  industryName?: string; // Made optional to prevent Type compilation crashes
   originalPrice: number;
+  priceAfterDiscount: number; // Added from updated schema
   discountedPrice: number;
   discount: number;
+  discountAmount: number; // Added from updated schema
+  platformChargeAmount: number; // Added from updated schema
+  platformChargePercentage: number; // Added from updated schema
+  finalPrice: number; // Added from updated schema
   youSave: number;
   availableQuantity: number;
   sku: string;
   upc: string;
   platformUniqueCode: string;
   imageUrl: string | null;
-  videoUrl: string | null;
+  videoUrl?: string | null;
   location: {
     brandName: string;
     address: string;
@@ -43,7 +49,7 @@ export interface PublicProduct {
   } | null;
   businessName: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string; // Made optional to match JSON runtime response
 }
 
 export interface PublicProductDetails {
@@ -166,7 +172,6 @@ export class PublicProductService {
         }
       });
 
-     
       if (!params.page) queryParams.append('page', '1');
       if (!params.limit) queryParams.append('limit', '20');
       if (!params.sortBy) queryParams.append('sortBy', 'createdAt');
@@ -229,7 +234,6 @@ export class PublicProductService {
     }
   }
 
- 
   static async getProductByCode(platformCode: string): Promise<PublicProductDetailsResponse> {
     try {
       const url = `${BASE_URL}/api/public/products/code/${platformCode}`;
@@ -283,7 +287,6 @@ export class PublicProductService {
     }
   }
 
- 
   static extractCategories(products: PublicProduct[]): Array<{ id: string; name: string }> {
     const categoryMap = new Map<string, string>();
     
@@ -299,11 +302,11 @@ export class PublicProductService {
     }));
   }
 
- 
   static extractIndustries(products: PublicProduct[]): Array<{ id: string; name: string }> {
     const industryMap = new Map<string, string>();
     
     products.forEach(product => {
+      // Added safety check since industryName can now be undefined
       if (product.industryName && !industryMap.has(product.industryName)) {
         industryMap.set(product.industryName, product.industryName);
       }
@@ -315,7 +318,6 @@ export class PublicProductService {
     }));
   }
 
-  
   static extractLocations(products: PublicProduct[]): {
     cities: string[];
     states: string[];
@@ -325,10 +327,10 @@ export class PublicProductService {
 
     products.forEach(product => {
       if (product.location?.city) {
-        cities.add(product.location.city);
+        cities.add(product.location.city.trim());
       }
       if (product.location?.state) {
-        states.add(product.location.state);
+        states.add(product.location.state.trim());
       }
     });
 
@@ -338,7 +340,6 @@ export class PublicProductService {
     };
   }
 
-  
   static formatNaira(amount: number): string {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -348,7 +349,6 @@ export class PublicProductService {
     }).format(amount);
   }
 
- 
   static calculateSavingsPercentage(original: number, discounted: number): number {
     if (original === 0) return 0;
     return ((original - discounted) / original) * 100;
